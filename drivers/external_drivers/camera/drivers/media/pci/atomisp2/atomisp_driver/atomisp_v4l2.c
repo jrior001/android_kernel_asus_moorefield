@@ -318,24 +318,24 @@ int Xe_flash_on(struct v4l2_subdev *sd, u16 delay, u16 pulse)
     return 0;
 }
 /* set reserved memory pool size in page */
-unsigned int repool_pgnr=39936;
+unsigned int repool_pgnr;
 module_param(repool_pgnr, uint, 0644);
 MODULE_PARM_DESC(repool_pgnr,
 		"Set the reserved memory pool size in page (default:0)");
 
 /* set dynamic memory pool size in page */
-unsigned int dypool_pgnr = 39936;
+unsigned int dypool_pgnr = UINT_MAX;
 module_param(dypool_pgnr, uint, 0644);
 MODULE_PARM_DESC(dypool_pgnr,
 		"Set the dynamic memory pool size in page (default:0)");
 
-bool dypool_enable=1;
+bool dypool_enable;
 module_param(dypool_enable, bool, 0644);
 MODULE_PARM_DESC(dypool_enable,
 		"dynamic memory pool enable/disable (default:disable)");
 
 /* memory optimization: deferred firmware loading */
-bool defer_fw_load=1;
+bool defer_fw_load;
 module_param(defer_fw_load, bool, 0644);
 MODULE_PARM_DESC(defer_fw_load,
 		"Defer FW loading until device is opened (default:disable)");
