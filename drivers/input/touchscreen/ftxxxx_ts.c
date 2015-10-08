@@ -109,6 +109,12 @@ unsigned short coordinate_y[150] = {0};
 int gesture_id = 0;
 extern int dclick_mode;
 extern int gesture_mode;
+extern int gesture_c;
+extern int gesture_e;
+extern int gesture_s;
+extern int gesture_v;
+extern int gesture_w;
+extern int gesture_z;
 #endif
 
 #ifdef SYSFS_DEBUG
@@ -344,7 +350,7 @@ static void check_gesture(struct ftxxxx_ts_data *data,int gesture_id)
 		//	input_sync(data->input_dev);
 		//	break;
 		case GESTURE_W:
-			if ((gesture_mode & 0x40) && (gesture_mode & 0x20)) {
+			if (gesture_w == 1) {
 				input_report_key(data->input_dev, KEY_GESTURE_W, 1);
 				input_sync(data->input_dev);
 				input_report_key(data->input_dev, KEY_GESTURE_W, 0);
@@ -358,7 +364,7 @@ static void check_gesture(struct ftxxxx_ts_data *data,int gesture_id)
 		//	input_sync(data->input_dev);
 		//	break;
 		case GESTURE_E:
-			if ((gesture_mode & 0x40) && (gesture_mode & 0x08)) {
+			if (gesture_e == 1) {
 				input_report_key(data->input_dev, KEY_GESTURE_E, 1);
 				input_sync(data->input_dev);
 				input_report_key(data->input_dev, KEY_GESTURE_E, 0);
@@ -372,7 +378,7 @@ static void check_gesture(struct ftxxxx_ts_data *data,int gesture_id)
 		//	input_sync(data->input_dev);
 		//	break;
 		case GESTURE_S:
-			if ((gesture_mode & 0x40) && (gesture_mode & 0x10)) {
+			if (gesture_s == 1) {
 				input_report_key(data->input_dev, KEY_GESTURE_S, 1);
 				input_sync(data->input_dev);
 				input_report_key(data->input_dev, KEY_GESTURE_S, 0);
@@ -380,7 +386,7 @@ static void check_gesture(struct ftxxxx_ts_data *data,int gesture_id)
 			}
 			break;
 		case GESTURE_V:
-			if ((gesture_mode & 0x40) && (gesture_mode & 0x01)) {
+			if (gesture_v == 1) {
 				input_report_key(data->input_dev, KEY_GESTURE_V, 1);
 				input_sync(data->input_dev);
 				input_report_key(data->input_dev, KEY_GESTURE_V, 0);
@@ -388,7 +394,7 @@ static void check_gesture(struct ftxxxx_ts_data *data,int gesture_id)
 			}
 			break;
 		case GESTURE_Z:
-			if ((gesture_mode & 0x40) && (gesture_mode & 0x02)) {
+			if (gesture_z == 1) {
 				input_report_key(data->input_dev, KEY_GESTURE_Z, 1);
 				input_sync(data->input_dev);
 				input_report_key(data->input_dev, KEY_GESTURE_Z, 0);
@@ -396,7 +402,7 @@ static void check_gesture(struct ftxxxx_ts_data *data,int gesture_id)
 			}
 			break;
 		case GESTURE_C:
-			if ((gesture_mode & 0x40) && (gesture_mode & 0x04)) {
+			if (gesture_c == 1)  {
 				input_report_key(data->input_dev, KEY_GESTURE_C, 1);
 				input_sync(data->input_dev);
 				input_report_key(data->input_dev, KEY_GESTURE_C, 0);
@@ -839,7 +845,7 @@ static void ftxxxx_ts_work_func(struct work_struct *work)
 #ifdef FTS_GESTURE//zax 20140922
 	i2c_smbus_read_i2c_block_data(ftxxxx_ts->client, 0xd0, 1, &state);
 	//Tempdev_dbg(&ftxxxx_ts->client->dev, "[ftxxxx] tpd fts_read_Gesturedata state=%d\n",state);
-	if(state ==1 && ((dclick_mode == 1) || (gesture_mode & 0x40)))
+	if(state ==1 && ((dclick_mode == 1) || (gesture_mode == 1)))
 	{
 		fts_read_Gesturedata(ftxxxx_ts);
 		/*continue;*/
@@ -1508,7 +1514,7 @@ static void ftxxxx_ts_suspend(struct early_suspend *handler)
 	}
 	
 	#ifdef FTS_GESTURE//zax 20140922
-	if ((dclick_mode == 1) || (gesture_mode & 0x40)) {
+	if ((dclick_mode == 1) || (gesture_mode == 1)) {
 		pr_info("[ftxxxx] ftxxxx ts early suspend in gesture mode\n");
 		ftxxxx_write_reg(ts->client, 0xd0, 0x01);
 		ftxxxx_write_reg(ts->client, 0xd1, 0x30);
@@ -1563,7 +1569,7 @@ static void ftxxxx_ts_resume(struct early_suspend *handler)
 	}
 
 	#ifdef FTS_GESTURE//zax 20140922
-	if ((dclick_mode == 1) || (gesture_mode & 0x40)) {
+	if ((dclick_mode == 1) || (gesture_mode == 1)) {
 		pr_info("[ftxxxx] ftxxxx ts late resume in gesture mode\n");
 		gpio_set_value(ts->pdata->gpio_reset, 0);
 		msleep(10);

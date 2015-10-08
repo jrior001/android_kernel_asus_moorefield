@@ -107,7 +107,13 @@ int dclick_mode = 0;
 //<ASUS_DTP->
 //<ASUS_Gesture+>
 //#ifdef ASUS_TOUCH_GESTURE_MODE
-int gesture_mode = 0;
+int gesture_mode = 1;
+int gesture_c = 0;
+int gesture_e = 0;
+int gesture_s = 0;
+int gesture_v = 0;
+int gesture_w = 0;
+int gesture_z = 0;
 //#endif
 //<ASUS_Gesture->
 //<ASUS_COVER+>
@@ -1301,20 +1307,171 @@ static ssize_t ftxxxx_gesture_mode_show(struct device *dev,
 static ssize_t ftxxxx_gesture_mode_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
-	char input[7] = {0};
-	int value=0, i;
+	unsigned int input;
 	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
 
-	if (sscanf(buf, "%s", &input) != 1)
+	if (sscanf(buf, "%u", &input) != 1)
 		return -EINVAL;
 
-	for (i=0;i<7;i++)
-	{
-		value += (((int)input[i])-48)<<(6-i);
-	}
-	gesture_mode = value;
+	gesture_mode = input;
 	printk("[ftxxxx] gesture mode: %d\n", gesture_mode);
+
+	return count;
+}
+
+static ssize_t ftxxxx_gesture_c_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+			gesture_c);
+}
+
+static ssize_t ftxxxx_gesture_c_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int input;
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	if (sscanf(buf, "%u", &input) != 1)
+		return -EINVAL;
+
+	gesture_c = input;
+	printk("[ftxxxx] gesture c: %d\n", gesture_c);
+
+	return count;
+}
+
+static ssize_t ftxxxx_gesture_e_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+			gesture_e);
+}
+
+static ssize_t ftxxxx_gesture_e_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int input;
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	if (sscanf(buf, "%u", &input) != 1)
+		return -EINVAL;
+
+	gesture_e = input;
+	printk("[ftxxxx] gesture e: %d\n", gesture_e);
+
+	return count;
+}
+
+static ssize_t ftxxxx_gesture_s_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+			gesture_s);
+}
+
+static ssize_t ftxxxx_gesture_s_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int input;
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	if (sscanf(buf, "%u", &input) != 1)
+		return -EINVAL;
+
+	gesture_s = input;
+	printk("[ftxxxx] gesture s: %d\n", gesture_s);
+
+	return count;
+}
+
+static ssize_t ftxxxx_gesture_v_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+			gesture_v);
+}
+
+static ssize_t ftxxxx_gesture_v_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int input;
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	if (sscanf(buf, "%u", &input) != 1)
+		return -EINVAL;
+
+	gesture_v = input;
+	printk("[ftxxxx] gesture v: %d\n", gesture_v);
+
+	return count;
+}
+
+static ssize_t ftxxxx_gesture_w_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+			gesture_w);
+}
+
+static ssize_t ftxxxx_gesture_w_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int input;
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	if (sscanf(buf, "%u", &input) != 1)
+		return -EINVAL;
+
+	gesture_w = input;
+	printk("[ftxxxx] gesture w: %d\n", gesture_w);
+
+	return count;
+}
+
+static ssize_t ftxxxx_gesture_z_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+			gesture_z);
+}
+
+static ssize_t ftxxxx_gesture_z_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int input;
+	//struct ftxxxx_ts_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+
+	if (sscanf(buf, "%u", &input) != 1)
+		return -EINVAL;
+
+	gesture_z = input;
+	printk("[ftxxxx] gesture z: %d\n", gesture_z);
 
 	return count;
 }
@@ -2044,6 +2201,12 @@ static DEVICE_ATTR(ftsdclickmode, S_IRUGO|S_IWUSR, ftxxxx_dclick_mode_show, ftxx
 //<ASUS_Gesture+>
 //#ifdef ASUS_TOUCH_GESTURE_MODE
 static DEVICE_ATTR(ftsgesturemode, S_IRUGO|S_IWUSR, ftxxxx_gesture_mode_show, ftxxxx_gesture_mode_store);
+static DEVICE_ATTR(ftsgesture_c, S_IRUGO|S_IWUSR, ftxxxx_gesture_c_show, ftxxxx_gesture_c_store);
+static DEVICE_ATTR(ftsgesture_e, S_IRUGO|S_IWUSR, ftxxxx_gesture_e_show, ftxxxx_gesture_e_store);
+static DEVICE_ATTR(ftsgesture_s, S_IRUGO|S_IWUSR, ftxxxx_gesture_s_show, ftxxxx_gesture_s_store);
+static DEVICE_ATTR(ftsgesture_v, S_IRUGO|S_IWUSR, ftxxxx_gesture_v_show, ftxxxx_gesture_v_store);
+static DEVICE_ATTR(ftsgesture_w, S_IRUGO|S_IWUSR, ftxxxx_gesture_w_show, ftxxxx_gesture_w_store);
+static DEVICE_ATTR(ftsgesture_z, S_IRUGO|S_IWUSR, ftxxxx_gesture_z_show, ftxxxx_gesture_z_store);
 //#endif
 //<ASUS_Gesture->
 
@@ -2078,6 +2241,12 @@ static struct attribute *ftxxxx_attributes[] = {
 //<ASUS_Gesture+>
 //#ifdef ASUS_TOUCH_GESTURE_MODE
 	&dev_attr_ftsgesturemode.attr,
+	&dev_attr_ftsgesture_c.attr,
+	&dev_attr_ftsgesture_e.attr,
+	&dev_attr_ftsgesture_s.attr,
+	&dev_attr_ftsgesture_v.attr,
+	&dev_attr_ftsgesture_w.attr,
+	&dev_attr_ftsgesture_z.attr,
 //#endif
 //<ASUS_Gesture->
 //<ASUS_COVER+>
