@@ -47,7 +47,6 @@
 extern int setSMB345Charger(int usb_state);
 #endif
 #include <linux/usb/penwell_otg.h>
-#include <linux/notifier.h>
 
 #define	DRIVER_DESC		"Intel Penwell USB OTG transceiver driver"
 #define	DRIVER_VERSION		"0.8"
@@ -78,47 +77,6 @@ static void penwell_spi_reset_phy(void);
 static int penwell_otg_charger_hwdet(bool enable);
 static void update_hsm(void);
 static void set_client_mode(void);
-
-#ifdef CONFIG_A500CG_BATTERY_SMB347
-extern int setSMB347Charger(int usb_state);
-#endif
-
-enum usb_charger_type usb_cable_status = CHRG_UNKNOWN;
-static BLOCKING_NOTIFIER_HEAD(cable_status_notifier_list);
-static u8 eye_diagram_value = 0x7b;
-/**
- *	cable_status_register_client - register a client notifier
- *	@nb: notifier block to callback on events
- */
-int cable_status_register_client(struct notifier_block *nb)
-{
-	return blocking_notifier_chain_register(&cable_status_notifier_list, nb);
-}
-EXPORT_SYMBOL(cable_status_register_client);
-
-/**
- *	cable_status_unregister_client - unregister a client notifier
- *	@nb: notifier block to callback on events
- */
-int cable_status_unregister_client(struct notifier_block *nb)
-{
-	return blocking_notifier_chain_unregister(&cable_status_notifier_list, nb);
-}
-EXPORT_SYMBOL(cable_status_unregister_client);
-
-/**
- * cable_status_notifier_call_chain - notify clients of cable_status_events
- *
- */
-int cable_status_notifier_call_chain(enum usb_charger_type status, void *v)
-{
-	int ret = 0;
-
-	printk(KERN_INFO "%s +++\n", __func__);
-	ret = blocking_notifier_call_chain(&cable_status_notifier_list, status, v);
-	printk(KERN_INFO "%s ret %d ---\n", __func__, ret);
-	return ret;
-}
 
 #ifdef CONFIG_DEBUG_FS
 unsigned int *pm_sss0_base;
@@ -342,12 +300,6 @@ static const char *psc_string(enum power_supply_charger_cable_type charger)
 	}
 }
 
-unsigned int query_cable_status(void)
-{
-	printk(KERN_INFO "%s %s\n", __func__, charger_string(usb_cable_status));
-	return usb_cable_status;
-}
-EXPORT_SYMBOL(query_cable_status);
 
 static struct penwell_otg *the_transceiver;
 
@@ -654,11 +606,6 @@ static void penwell_otg_update_chrg_cap(enum usb_charger_type charger,
 	pdev = to_pci_dev(pnw->dev);
 
 	dev_dbg(pnw->dev, "%s --->\n", __func__);
-
-	if (charger == CHRG_UNKNOWN) {
-		usb_cable_status = charger;
-		cable_status_notifier_call_chain(usb_cable_status, pnw);
-	}
 
 	if (!is_clovertrail(pdev)) {
 		spin_lock_irqsave(&pnw->charger_lock, flags);
@@ -3227,9 +3174,6 @@ static void penwell_otg_work(struct work_struct *work)
 				dev_warn(pnw->dev, "ID changed\n");
 				break;
 			}
-
-			usb_cable_status = charger_type;
-			cable_status_notifier_call_chain(usb_cable_status, pnw);
 
 			if (charger_type == CHRG_SE1) {
 				dev_info(pnw->dev, "SE1 detected\n");

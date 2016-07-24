@@ -55,7 +55,7 @@
  * also linked into the probe response struct.
  */
 
-#define IEEE80211_SCAN_RESULT_EXPIRE	(3 * HZ)
+#define IEEE80211_SCAN_RESULT_EXPIRE	(7 * HZ)
 
 static void bss_free(struct cfg80211_internal_bss *bss)
 {
@@ -245,6 +245,8 @@ void __cfg80211_sched_scan_results(struct work_struct *wk)
 			    sched_scan_results_wk);
 
 	mutex_lock(&rdev->sched_scan_mtx);
+	request = rdev->sched_scan_req;
+
 	request = rdev->sched_scan_req;
 
 	/* we don't have sched_scan_req anymore if the scan is stopping */

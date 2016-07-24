@@ -207,6 +207,16 @@ config USB_LANGWELL
 	   dynamically linked module called "langwell_udc" and force all
 	   gadget drivers to also be dynamically linked.
 
+config USB_INTEL_SUPERSPEED
+	boolean "Intel SUPERSPEED SUPPORT on GADGET driver"
+	depends on USB_GADGET
+	default n
+	help
+	   Intel adds superspeed support for f_fs gadget. 3.10.XX doesn't have
+	   USB 3.0 support yet. It'll enable USB 3.0 on this platform.
+	   It's to enable and disable USB 3.0 feature to meet Android M requirement.
+	   Say "y" to enable USB 3.0 with USB_GADGET.
+
 config USB_OMAP
 	tristate "OMAP USB Device Controller"
 	depends on ARCH_OMAP1

@@ -21,14 +21,18 @@
 #include "platform_camera.h"
 #include "platform_imx175.h"
 #include "platform_imx134.h"
+#include "platform_ov2685.h"
 #include "platform_ov2722.h"
 #include "platform_gc2235.h"
 #include "platform_ov5693.h"
 #include "platform_lm3554.h"
 #include "platform_lm3642.h"
 #include "platform_ap1302.h"
+#include "platform_imx227.h"
 #include "platform_pixter.h"
 #include "platform_m10mo.h"
+#include "platform_m12mo.h"
+#include "platform_flashnode.h"
 #ifdef CONFIG_CRYSTAL_COVE
 #include <linux/mfd/intel_mid_pmic.h>
 #endif
@@ -50,9 +54,11 @@ const struct intel_v4l2_subdev_id v4l2_ids[] = {
 	{"imx134", RAW_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
 	{"gc2235", RAW_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
 	{"imx132", RAW_CAMERA, ATOMISP_CAMERA_PORT_SECONDARY},
+	{"imx227", RAW_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
 	{"ov9724", RAW_CAMERA, ATOMISP_CAMERA_PORT_SECONDARY},
 	{"ov2722", RAW_CAMERA, ATOMISP_CAMERA_PORT_SECONDARY},
 	{"ov5693", RAW_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
+	{"ov2685", SOC_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
 	{"mt9d113", SOC_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
 	{"mt9m114", SOC_CAMERA, ATOMISP_CAMERA_PORT_SECONDARY},
 	{"mt9v113", SOC_CAMERA, ATOMISP_CAMERA_PORT_SECONDARY},
@@ -72,9 +78,10 @@ const struct intel_v4l2_subdev_id v4l2_ids[] = {
 	{"pixter_2", PIXTER_2_TYPE, ATOMISP_CAMERA_PORT_TERTIARY},
 #else
 	{"m10mo", SOC_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
-	{"ov5670", RAW_CAMERA, ATOMISP_CAMERA_PORT_SECONDARY},
+	{"m12mo", SOC_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
 	{"sky81296", LED_FLASH, -1},
 	{"flashnode", LED_FLASH, -1},
+	{"ov5670", RAW_CAMERA, ATOMISP_CAMERA_PORT_SECONDARY},
 	{"t4k37",  RAW_CAMERA, ATOMISP_CAMERA_PORT_PRIMARY},
 #endif
 	{},
@@ -121,6 +128,10 @@ static struct camera_device_table byt_ffrd8_cam_table[] = {
 
 static struct camera_device_table byt_crv2_cam_table[] = {
 	{
+		{SFI_DEV_TYPE_I2C, 2, 0x3c, 0x0, 0x0, "ov2685"},
+		{"ov2685", SFI_DEV_TYPE_I2C, 0, &ov2685_platform_data,
+			&intel_register_i2c_camera_device}
+	}, {
 		{SFI_DEV_TYPE_I2C, 2, 0x3C, 0x0, 0x0, "gc2235"},
 		{"gc2235", SFI_DEV_TYPE_I2C, 0, &gc2235_platform_data,
 			&intel_register_i2c_camera_device}
@@ -350,6 +361,7 @@ void intel_register_i2c_camera_device(struct sfi_device_table_entry *pentry,
 
 	if (!dev->get_platform_data)
 		return;
+
 	pdata = dev->get_platform_data(&i2c_info);
 	i2c_info.platform_data = pdata;
 
@@ -408,6 +420,7 @@ void intel_register_i2c_camera_device(struct sfi_device_table_entry *pentry,
 	subdev_table[i].port = port;
 	i++;
 	kfree(info);
+
 	return;
 }
 
@@ -519,7 +532,9 @@ const struct atomisp_camera_caps *atomisp_get_default_camera_caps(void)
 }
 EXPORT_SYMBOL_GPL(atomisp_get_default_camera_caps);
 
+#if 0
 static int camera_af_power_gpio = -1;
+#endif
 
 static int camera_af_power_ctrl(struct v4l2_subdev *sd, int flag)
 {
@@ -533,13 +548,13 @@ static int camera_af_power_ctrl(struct v4l2_subdev *sd, int flag)
 
 const struct camera_af_platform_data *camera_get_af_platform_data(void)
 {
-	static const int GP_CORE = 96;
-	static const int GPIO_DEFAULT = GP_CORE + 76;
-	static const char gpio_name[] = "CAM_0_AF_EN";
 	static const struct camera_af_platform_data platform_data = {
 		.power_ctrl = camera_af_power_ctrl
 	};
 #if 0
+	static const int GP_CORE = 96;
+	static const int GPIO_DEFAULT = GP_CORE + 76;
+	static const char gpio_name[] = "CAM_0_AF_EN";
 	int gpio, r;
 
 	if (!INTEL_MID_BOARD(1, TABLET, BYT) && camera_af_power_gpio == -1) {

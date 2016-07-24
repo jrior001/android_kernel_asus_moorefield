@@ -52,6 +52,26 @@ ssize_t pm_show_wakelocks(char *buf, bool show_active)
 	mutex_unlock(&wakelocks_lock);
 	return (str - buf);
 }
+#ifdef CONFIG_ASUS_FACTORY_MODE
+#include <linux/wakelock.h>
+void release_all_wakelocks(void)
+{
+	struct rb_node *node;
+	struct wakelock *wl;
+
+	mutex_lock(&wakelocks_lock);
+
+	for (node = rb_first(&wakelocks_tree); node; node = rb_next(node)) {
+		wl = rb_entry(node, struct wakelock, node);
+		if (wl->ws.active == true) {
+			printk(KERN_INFO"[jevian log]release wake lock is %s\n",wl->name);
+			wake_unlock((struct wake_lock*)&(wl->ws));
+		}
+	}
+	mutex_unlock(&wakelocks_lock);
+}
+EXPORT_SYMBOL(release_all_wakelocks);
+#endif
 
 #if CONFIG_PM_WAKELOCKS_LIMIT > 0
 static unsigned int number_of_wakelocks;

@@ -116,6 +116,8 @@ struct dev_func {
         int (*read_nac)(void);
         /* rm */
         int (*read_rm)(void);
+		/* battery soh*/
+        int (*read_soh)(void);
 };
 
 

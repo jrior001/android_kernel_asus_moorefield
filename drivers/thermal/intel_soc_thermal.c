@@ -463,13 +463,6 @@ static void set_floor_freq(int val)
 
 	eax = read_soc_reg(turbo_floor_reg);
 
-	/*
-	 * If autonomous frequency floor control by Punit is enabled,
-	 * do no modify floor frequency setting from iTUX
-	 */
-	if (!((eax >> 25) & 0x1))
-		return;
-
 	/* Set bits[8:14] of eax to val */
 	eax = (eax & ~(0x7F << 8)) | (val << 8);
 

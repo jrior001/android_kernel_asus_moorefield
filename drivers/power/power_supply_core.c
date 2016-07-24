@@ -641,12 +641,11 @@ int power_supply_register(struct device *parent, struct power_supply *psy)
 	if (rc)
 		goto create_triggers_failed;
 
-#ifndef CONFIG_A500CG
 	if (IS_CHARGER(psy))
 		rc = power_supply_register_charger(psy);
 	if (rc)
 		goto charger_register_failed;
-#endif
+
 	power_supply_changed(psy);
 
 	goto success;

@@ -50,11 +50,11 @@ void *flashnode_platform_data_func(void *info)
 	platform_FLASHNODE_data.fl1_by_pin = true;
 	platform_FLASHNODE_data.fl2_by_pin = true;
 	platform_FLASHNODE_data.current_limit = 2600;
-	platform_FLASHNODE_data.disable_short_led_report = false;
+	platform_FLASHNODE_data.disable_short_led_report = true;
 	platform_FLASHNODE_data.shutoff_on_inhibit_mode = true;
 	platform_FLASHNODE_data.enable_voltage_monitor = true;
-	platform_FLASHNODE_data.input_voltage_threshold = 3300;
-	platform_FLASHNODE_data.input_voltage_hysteresis = 3400;
+	platform_FLASHNODE_data.input_voltage_threshold = 3400;
+	platform_FLASHNODE_data.input_voltage_hysteresis = 3500;
 	printk("flashnode_platform_data_func\n");
 	return &platform_FLASHNODE_data;
 }

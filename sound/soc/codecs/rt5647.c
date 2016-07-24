@@ -71,6 +71,7 @@ struct delayed_work spk_unmute_work;
 static int spk_unmute_delay_time;
 
 static struct rt5647_init_reg init_list[] = {
+	{ RT5647_GLB_CLK	, 0x4000 },
 	{ RT5647_ADDA_CLK1	, 0x1110 },
 	{ RT5647_IL_CMD         , 0x0007 },
 	{ RT5647_IL_CMD3        , 0x0000 },
@@ -134,7 +135,6 @@ static struct rt5647_init_reg init_list[] = {
 	{ RT5647_GPIO_CTRL2	, 0x0004 },
 	{ RT5647_GPIO_CTRL4	, 0x0004 },
 #ifdef JD1_FUNC
-	{ RT5647_IRQ_CTRL2	, 0x0200 },
 	{ RT5647_A_JD_CTRL1	, 0x0001 },
 	{ RT5647_MICBIAS	, 0x0008 },
 	{ RT5647_GEN_CTRL3	, 0x10c0 },
@@ -235,6 +235,7 @@ static const u16 rt5647_reg[RT5647_VENDOR_ID2 + 1] = {
 	[RT5647_ADDA_CLK2] = 0x3e00,
 	[RT5647_DMIC_CTRL1] = 0x2409,
 	[RT5647_DMIC_CTRL2] = 0x000a,
+	[RT5647_TDM_CTRL_1] = 0x0c00,
 	[RT5647_TDM_CTRL_3] = 0x0123,
 	[RT5647_ASRC_3] = 0x0003,
 	[RT5647_DEPOP_M1] = 0x0004,
@@ -736,8 +737,11 @@ int rt5647_headset_detect(struct snd_soc_codec *codec, int jack_insert)
 	}
 
 	rt5647->jack_type = jack_type;
-	//pr_info("jack_type=%d\n", jack_type);
-	printk(KERN_INFO "%s: jack_type=%d\n",__func__, jack_type);
+
+#ifndef UART_DEBUG
+	printk(KERN_INFO "%s: jack_type=%d\n", __func__, jack_type);
+#endif
+
 	return jack_type;
 }
 EXPORT_SYMBOL(rt5647_headset_detect);
@@ -3794,10 +3798,10 @@ static void jd_check_handler(struct work_struct *work)
 	unsigned int val = 0;
 	int pr_check = 0;
 
-	//val = snd_soc_read(codec, RT5647_A_JD_CTRL1) & 0x0020;
-	//pr_debug("jd_check_handler : val = 0x%x\n", val);
+	val = snd_soc_read(codec, RT5647_A_JD_CTRL1) & 0x0020;
+	pr_debug("jd_check_handler : val = 0x%x\n", val);
 
-	if (Read_HW_ID() == HW_ID_PR || Read_HW_ID() == HW_ID_pre_PR || Read_HW_ID() == HW_ID_MP || Read_PROJ_ID() == PROJ_ID_ZX550ML) {
+	if (Read_HW_ID() == HW_ID_PR || Read_HW_ID() == HW_ID_pre_PR || Read_HW_ID() == HW_ID_MP || Read_PROJ_ID() == PROJ_ID_ZX550ML || Read_PROJ_ID() == PROJ_ID_ZS570ML) {
 		pr_check = 1;
 	} else {
 		val = snd_soc_read(codec, RT5647_A_JD_CTRL1) & 0x0020;
@@ -3980,6 +3984,16 @@ static int rt5647_probe(struct snd_soc_codec *codec)
 	spk_unmute_wq = create_singlethread_workqueue("spk_unmute_wq");
 	INIT_DELAYED_WORK(&spk_unmute_work, do_spk_unmute_work);
 	spk_unmute_delay_time = 0;
+
+#ifdef JD1_FUNC
+	if (Read_PROJ_ID() == PROJ_ID_ZX550ML)
+		ret = snd_soc_write(codec, RT5647_IRQ_CTRL2, 0x0000);
+	else
+		ret = snd_soc_write(codec, RT5647_IRQ_CTRL2, 0x0200);
+
+	if (ret < 0)
+		printk("%s: MX-BD register write fail.\n", __func__);
+#endif
 
 	return 0;
 }

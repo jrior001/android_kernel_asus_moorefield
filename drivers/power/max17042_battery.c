@@ -78,8 +78,8 @@
 /* SOC threshold for 1% interrupt */
 #define SOC_INTR_S0_THR		1
 
-#define MISCCFG_CONFIG_REPSOC	0x0000
-#define MISCCFG_CONFIG_VFSOC	0x0003
+#define MISCCFG_CONFIG_REPSOC	0x0870
+#define MISCCFG_CONFIG_VFSOC	0x0873
 
 /* low battery notification warning level */
 #define SOC_WARNING_LEVEL1	15
@@ -103,9 +103,9 @@
 #define FG_MODEL_LOCK1		0X0000
 #define FG_MODEL_LOCK2		0X0000
 
-#define dQ_ACC_DIV	0x4
-#define dP_ACC_100	0x1900
-#define dP_ACC_200	0x3200
+#define dQ_ACC_DIV	0x10
+#define dP_ACC_100	0x0640
+#define dP_ACC_200	0x0C80
 
 #define	NTC_47K_TGAIN	0xE4E4
 #define	NTC_47K_TOFF	0x2F1D
@@ -126,8 +126,14 @@
 #define POWER_SUPPLY_VOLT_MIN_THRESHOLD	3500000
 #define BATTERY_VOLT_MIN_THRESHOLD	3400000
 
+/*
+ * Threshold cycles to determine whether saved config data
+ * have enough charge/discharge cycle data so that Maxim
+ * FG can set the Mixing algorithm to use coulomb counter
+ * as dominant factor in calculating SoC
+ */
 #define CYCLES_ROLLOVER_CUTOFF		0x00FF
-#define MAX17042_DEF_RO_LRNCFG		0x0076
+#define MAX17042_DEF_RO_LRNCFG		0x2676
 
 #define MAX17042_CGAIN_DISABLE		0x0000
 #define MAX17042_EN_VOLT_FG		0x0007
@@ -218,6 +224,7 @@ enum max17042_register {
 	MAX17042_VFSOC0         = 0x48,
 	MAX17042_VFRemCap	= 0x4A,
 
+	MAX17042_QH0	= 0x4C,
 	MAX17042_QH		= 0x4D,
 	MAX17042_QL		= 0x4E,
 
@@ -930,7 +937,11 @@ static int max17042_get_property(struct power_supply *psy,
 		val->intval = chip->technology;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		val->intval = chip->charge_full_des;
+		ret = max17042_read_reg(chip->client,
+				MAX17042_DesignCap);
+		if (ret < 0)
+			goto ps_prop_read_err;
+		val->intval = ret * MAX17042_CHRG_CONV_FCTR;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 		ret = max17042_read_reg(chip->client, MAX17042_RepCap);
@@ -1201,24 +1212,30 @@ static void dump_fg_conf_data(struct max17042_chip *chip)
 
 static void enable_soft_POR(struct max17042_chip *chip)
 {
-	u16 val = 0x0000;
+	u16 val = 0x0000, lock1, lock2, status;
+	int retry_lock_count = 5, retry_por_count = 5;
 
+retry_lock:
 	max17042_write_reg(chip->client, MAX17042_MLOCKReg1, val);
 	max17042_write_reg(chip->client, MAX17042_MLOCKReg2, val);
 	max17042_write_reg(chip->client, MAX17042_STATUS, val);
 
-	val = max17042_read_reg(chip->client, MAX17042_MLOCKReg1);
-	if (val)
+	lock1 = max17042_read_reg(chip->client, MAX17042_MLOCKReg1);
+	if (lock1)
 		dev_err(&chip->client->dev, "MLOCKReg1 read failed\n");
 
-	val = max17042_read_reg(chip->client, MAX17042_MLOCKReg2);
-	if (val)
+	lock2 = max17042_read_reg(chip->client, MAX17042_MLOCKReg2);
+	if (lock2)
 		dev_err(&chip->client->dev, "MLOCKReg2 read failed\n");
 
-	val = max17042_read_reg(chip->client, MAX17042_STATUS);
-	if (val)
+	status = max17042_read_reg(chip->client, MAX17042_STATUS);
+	if (status)
 		dev_err(&chip->client->dev, "STATUS read failed\n");
 
+	if ((retry_lock_count--) && (lock1 |lock2 |status) )
+		goto retry_lock;
+
+retry_por:
 	/* send POR command */
 	max17042_write_reg(chip->client, MAX17042_VFSOC0Enable, 0x000F);
 	mdelay(2);
@@ -1226,8 +1243,15 @@ static void enable_soft_POR(struct max17042_chip *chip)
 	val = max17042_read_reg(chip->client, MAX17042_STATUS);
 	if (val & STATUS_POR_BIT)
 		dev_info(&chip->client->dev, "SoftPOR done!\n");
-	else
-		dev_err(&chip->client->dev, "SoftPOR failed\n");
+	else {
+		dev_err(&chip->client->dev, "SoftPOR retry..\n");
+		if (retry_por_count > 0) {
+			msleep(10);
+			retry_por_count--;
+			goto retry_por;
+		} else
+			dev_err(&chip->client->dev, "SoftPOR failed\n");
+	}
 }
 
 static int write_characterization_data(struct max17042_chip *chip)
@@ -1294,6 +1318,12 @@ static void configure_learncfg(struct max17042_chip *chip)
 
 	/*assigning cycles value from restored data*/
 	cycles = fg_conf_data->cycles;
+	/*
+	 * If number of saved charge/discharge cycles exceed the
+	 * rollover limit, then Maxim FG learn Config register
+	 * should be set to use coulomb counter input as
+	 * dominant factor to mixing algorithm
+	 */
 	if ((cycles >= CYCLES_ROLLOVER_CUTOFF) &&
 				(chip->chip_type == MAX17042))
 		max17042_write_verify_reg(chip->client, MAX17042_LearnCFG,
@@ -1306,12 +1336,11 @@ static void configure_learncfg(struct max17042_chip *chip)
 static void write_config_regs(struct max17042_chip *chip)
 {
 	max17042_write_reg(chip->client, MAX17042_CONFIG, fg_conf_data->cfg);
-	configure_learncfg(chip);
-
 	max17042_write_reg(chip->client, MAX17042_SHFTCFG,
 						fg_conf_data->filter_cfg);
 	max17042_write_reg(chip->client, MAX17042_RelaxCFG,
 						fg_conf_data->relax_cfg);
+	configure_learncfg(chip);
 	if (chip->chip_type == MAX17050)
 		max17042_write_reg(chip->client, MAX17050_FullSOCThr,
 					fg_conf_data->full_soc_thr);
@@ -1362,20 +1391,27 @@ static void update_capacity_regs(struct max17042_chip *chip)
 				chip->model_algo_factor)
 					* fg_conf_data->rsense);
 	max17042_write_verify_reg(chip->client, MAX17042_FullCAPNom,
-			MAX17042_MODEL_MUL_FACTOR(fg_conf_data->full_cap,
+			MAX17042_MODEL_MUL_FACTOR(fg_conf_data->full_capnom,
 				chip->model_algo_factor)
 					* fg_conf_data->rsense);
 	max17042_write_reg(chip->client, MAX17042_DesignCap,
-			MAX17042_MODEL_MUL_FACTOR(fg_conf_data->full_cap,
+			MAX17042_MODEL_MUL_FACTOR(fg_conf_data->design_cap,
 				chip->model_algo_factor)
 					* fg_conf_data->rsense);
 }
 
 static void reset_vfsoc0_reg(struct max17042_chip *chip)
 {
+	int qh;
+
 	fg_vfSoc = max17042_read_reg(chip->client, MAX17042_VFSOC);
 	max17042_write_reg(chip->client, MAX17042_VFSOC0Enable, VFSOC0_UNLOCK);
+
 	max17042_write_verify_reg(chip->client, MAX17042_VFSOC0, fg_vfSoc);
+
+	qh = max17042_read_reg(chip->client, MAX17042_QH);
+	max17042_write_verify_reg(chip->client, MAX17042_QH0, qh);
+
 	max17042_write_reg(chip->client, MAX17042_VFSOC0Enable, VFSOC0_LOCK);
 }
 
@@ -1397,14 +1433,15 @@ static void load_new_capacity_params(struct max17042_chip *chip, bool is_por)
 		max17042_write_verify_reg(chip->client,
 					MAX17042_RemCap, rem_cap);
 
-		rep_cap = rem_cap;
+		rep_cap = rem_cap * fg_conf_data->full_cap /
+				fg_conf_data->design_cap;
 
 		max17042_write_verify_reg(chip->client,
 					MAX17042_RepCap, rep_cap);
 	}
 
 	/* Write dQ_acc to 200% of Capacity and dP_acc to 200% */
-	dq_acc = MAX17042_MODEL_MUL_FACTOR(fg_conf_data->full_cap,
+	dq_acc = MAX17042_MODEL_MUL_FACTOR(fg_conf_data->design_cap,
 			chip->model_algo_factor) / dQ_ACC_DIV;
 	max17042_write_verify_reg(chip->client, MAX17042_dQacc, dq_acc);
 	max17042_write_verify_reg(chip->client, MAX17042_dPacc, dP_ACC_200);
@@ -1413,11 +1450,11 @@ static void load_new_capacity_params(struct max17042_chip *chip, bool is_por)
 			fg_conf_data->full_cap
 			* fg_conf_data->rsense);
 	max17042_write_reg(chip->client, MAX17042_DesignCap,
-			MAX17042_MODEL_MUL_FACTOR(fg_conf_data->full_cap,
+			MAX17042_MODEL_MUL_FACTOR(fg_conf_data->design_cap,
 			chip->model_algo_factor)
 			* fg_conf_data->rsense);
 	max17042_write_verify_reg(chip->client, MAX17042_FullCAPNom,
-			MAX17042_MODEL_MUL_FACTOR(fg_conf_data->full_cap,
+			MAX17042_MODEL_MUL_FACTOR(fg_conf_data->full_capnom,
 			chip->model_algo_factor)
 			* fg_conf_data->rsense);
 	/* Update SOC register with new SOC */
@@ -1613,7 +1650,8 @@ static void set_chip_config(struct max17042_chip *chip)
 	dev_info(&chip->client->dev, "Status reg: %x\n", val);
 	if (!fg_conf_data->config_init || (val & STATUS_POR_BIT)) {
 		dev_info(&chip->client->dev, "Config data should be loaded\n");
-		if (chip->pdata->reset_chip)
+		if (chip->pdata->reset_chip &&
+				!(val & STATUS_POR_BIT))
 			reset_max17042(chip);
 		retval = init_max17042_chip(chip);
 		if (retval < 0) {

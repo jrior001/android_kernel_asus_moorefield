@@ -166,9 +166,9 @@ static void __cpuinit smp_callin(void)
 	 */
 
 	/*
-	 * Waiting 60s total for startup (udelay is not yet working)
+	 * Waiting 2s total for startup (udelay is not yet working)
 	 */
-	timeout = jiffies + 60*HZ;
+	timeout = jiffies + 2*HZ;
 	while (time_before(jiffies, timeout)) {
 		/*
 		 * Has the boot CPU finished it's STARTUP sequence?
@@ -263,6 +263,13 @@ notrace static void __cpuinit start_secondary(void *unused)
 	 * Check TSC synchronization with the BP:
 	 */
 	check_tsc_sync_target();
+
+	/*
+	 * Enable the espfix hack for this CPU
+	 */
+#ifdef CONFIG_X86_ESPFIX64
+	init_espfix_ap();
+#endif
 
 	/*
 	 * We need to hold vector_lock so there the set of online cpus
@@ -1284,6 +1291,9 @@ static void remove_siblinginfo(int cpu)
 
 	for_each_cpu(sibling, cpu_sibling_mask(cpu))
 		cpumask_clear_cpu(cpu, cpu_sibling_mask(sibling));
+	for_each_cpu(sibling, cpu_llc_shared_mask(cpu))
+		cpumask_clear_cpu(cpu, cpu_llc_shared_mask(sibling));
+	cpumask_clear(cpu_llc_shared_mask(cpu));
 	cpumask_clear(cpu_sibling_mask(cpu));
 	cpumask_clear(cpu_core_mask(cpu));
 	c->phys_proc_id = 0;

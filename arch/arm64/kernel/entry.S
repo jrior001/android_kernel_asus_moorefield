@@ -25,9 +25,9 @@
 #include <asm/asm-offsets.h>
 #include <asm/errno.h>
 #include <asm/esr.h>
+#include <asm/ptrace.h>
 #include <asm/thread_info.h>
 #include <asm/unistd.h>
-#include <asm/unistd32.h>
 
 /*
  * Bad Abort numbers
@@ -121,7 +121,7 @@
 
 	.macro	get_thread_info, rd
 	mov	\rd, sp
-	and	\rd, \rd, #~((1 << 13) - 1)	// top of 8K stack
+	and	\rd, \rd, #~(THREAD_SIZE - 1)	// top of stack
 	.endm
 
 /*
@@ -275,7 +275,6 @@ el1_sp_pc:
 	 * Stack or PC alignment exception handling
 	 */
 	mrs	x0, far_el1
-	mov	x1, x25
 	mov	x2, sp
 	b	do_sp_pc_abort
 el1_undef:
@@ -423,6 +422,7 @@ el0_da:
 	 * Data abort handling
 	 */
 	mrs	x0, far_el1
+	bic	x0, x0, #(0xff << 56)
 	disable_step x1
 	isb
 	enable_dbg
@@ -586,7 +586,7 @@ fast_work_pending:
 	str	x0, [sp, #S_X0]			// returned x0
 work_pending:
 	tbnz	x1, #TIF_NEED_RESCHED, work_resched
-	/* TIF_SIGPENDING or TIF_NOTIFY_RESUME case */
+	/* TIF_SIGPENDING, TIF_NOTIFY_RESUME or TIF_FOREIGN_FPSTATE case */
 	ldr	x2, [sp, #S_PSTATE]
 	mov	x0, sp				// 'regs'
 	tst	x2, #PSR_MODE_MASK		// user mode regs?
@@ -641,8 +641,9 @@ el0_svc_naked:					// compat entry point
 	enable_irq
 
 	get_thread_info tsk
-	ldr	x16, [tsk, #TI_FLAGS]		// check for syscall tracing
-	tbnz	x16, #TIF_SYSCALL_TRACE, __sys_trace // are we tracing syscalls?
+	ldr	x16, [tsk, #TI_FLAGS]		// check for syscall hooks
+	tst	x16, #_TIF_SYSCALL_WORK
+	b.ne	__sys_trace
 	adr	lr, ret_fast_syscall		// return address
 	cmp     scno, sc_nr                     // check upper syscall limit
 	b.hs	ni_sys
@@ -658,10 +659,13 @@ ENDPROC(el0_svc)
 	 * switches, and waiting for our parent to respond.
 	 */
 __sys_trace:
-	mov	x1, sp
-	mov	w0, #0				// trace entry
-	bl	syscall_trace
+	mov	x0, sp
+	bl	syscall_trace_enter
 	adr	lr, __sys_trace_return		// return address
+	cmp	w0, #RET_SKIP_SYSCALL_TRACE	// skip syscall and tracing?
+	b.eq	ret_to_user
+	cmp	w0, #RET_SKIP_SYSCALL		// skip syscall?
+	b.eq	__sys_trace_return_skipped
 	uxtw	scno, w0			// syscall number (possibly new)
 	mov	x1, sp				// pointer to regs
 	cmp	scno, sc_nr			// check upper syscall limit
@@ -675,9 +679,9 @@ __sys_trace:
 
 __sys_trace_return:
 	str	x0, [sp]			// save returned x0
-	mov	x1, sp
-	mov	w0, #1				// trace exit
-	bl	syscall_trace
+__sys_trace_return_skipped:			// x0 already in regs[0]
+	mov	x0, sp
+	bl	syscall_trace_exit
 	b	ret_to_user
 
 /*

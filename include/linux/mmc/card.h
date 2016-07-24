@@ -107,7 +107,7 @@ struct mmc_ext_csd {
 	u8			raw_trim_mult;		/* 232 */
 	u8			raw_bkops_status;	/* 246 */
 	u8			raw_sectors[4];		/* 212 - 4 bytes */
-
+	u8			health[3];		/* 267 - 3 bytes */
 	unsigned int            feature_support;
 #define MMC_DISCARD_FEATURE	BIT(0)                  /* CMD38 feature */
 	unsigned int            gpp_sz[4];
@@ -537,6 +537,9 @@ extern void mmc_fixup_device(struct mmc_card *card,
 
 extern int mmc_rpmb_req_handle(struct device *emmc,
 		struct mmc_ioc_rpmb_req *req);
+
+extern int mmc_single_block_access(struct device *emmc, bool read, u32 addr,
+		u8 *buf, u32 buf_len);
 
 extern void dis_cache_mmc(struct mmc_card *card, int data);
 #endif /* LINUX_MMC_CARD_H */

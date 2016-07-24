@@ -1,8 +1,9 @@
 # IPC Devices
 obj-y += platform_sst_audio.o
 obj-y += platform_clv_regulator.o
-obj-y += platform_mrfl_regulator.o
 obj-y += platform_byt_regulator.o
+obj-$(CONFIG_REGULATOR_DOLLAR_COVE) += platform_btns_regulator.o
+obj-$(CONFIG_REGULATOR_PMIC_BASIN_COVE) += platform_mrfl_regulator.o
 obj-$(CONFIG_REGULATOR_CRYSTAL_COVE_PLUS) += platform_cht_ccovep_regulator.o
 obj-$(CONFIG_REGULATOR_WHISKEY_COVE) += platform_cht_wcove_regulator.o
 obj-y += platform_mofd_regulator.o
@@ -14,7 +15,6 @@ obj-$(subst m,y,$(CONFIG_SND_MOOR_MACHINE)) += platform_mrfld_audio.o
 obj-$(subst m,y,$(CONFIG_SND_MOOR_MACHINE)) += platform_florida.o
 obj-$(subst m,y,$(CONFIG_SND_CTP_MACHINE)) += platform_ctp_audio.o
 obj-$(subst m,y,$(CONFIG_SND_CTP_MACHINE_5671)) += platform_ctp_audio.o
-obj-$(subst m,y,$(CONFIG_SND_CTP_MACHINE_5647)) += platform_ctp_audio.o
 obj-y += platform_ipc.o
 obj-$(subst m,y,$(CONFIG_SUPPORT_HDMI)) += platform_i2c_gpio.o
 obj-y += platform_msic.o
@@ -45,7 +45,6 @@ obj-$(subst m,y,$(CONFIG_INTEL_MOOR_THERMAL)) += platform_moor_thermal.o
 obj-$(subst m,y,$(CONFIG_INTEL_SCU_FLIS)) += platform_scu_flis.o
 
 # I2C Devices
-# Flash Driver IC
 obj-$(subst m,y,$(CONFIG_VIDEO_SKY81296))                 += platform_sky81296.o
 obj-$(subst m,y,$(CONFIG_VIDEO_FLASHNODE)) += platform_flashnode.o
 obj-$(subst m,y,$(CONFIG_I2C_DESIGNWARE_CORE_FORK)) += platform_dw_i2c.o
@@ -58,6 +57,7 @@ obj-$(subst m,y,$(CONFIG_CHARGER_BQ24192)) += platform_bq24192.o
 obj-$(subst m,y,$(CONFIG_BQ24261_CHARGER)) += platform_bq24261.o
 obj-$(subst m,y,$(CONFIG_SND_SOC_CS42L73)) += platform_cs42l73.o
 obj-$(subst m,y,$(CONFIG_SND_SOC_WM8994)) += platform_wm8994.o
+obj-$(subst m,y,$(CONFIG_SND_SOC_LARGO)) += platform_arizona.o
 obj-$(subst m,y,$(CONFIG_INTEL_CRYSTALCOVE_PAGE0)) += platform_crystalcove_page0.o
 obj-$(subst m,y,$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI4_FORK)) += platform_rmi4.o
 obj-$(subst m,y,$(CONFIG_TOUCHSCREEN_R69001_I2C)) += platform_r69001.o
@@ -73,9 +73,20 @@ obj-$(subst m,y,$(CONFIG_EXTCON_SMSC375X))	+= platform_smsc375x.o
 obj-$(subst m,y,$(CONFIG_SND_SOC_WM5102)) += platform_wm5102.o
 obj-$(subst m,y,$(CONFIG_GPIO_PCA953X)) += platform_pca9574.o
 obj-$(subst m,y,$(CONFIG_TOUCHSCREEN_HIMAX_HX8528_ME372CL)) += platform_hx8528_me372cl.o
+obj-$(subst m,y,$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP5)) += platform_cyttsp5.o
+obj-$(subst m,y,$(CONFIG_KL03_HINGE)) += platform_kl03_hinge.o
+obj-$(subst m,y,$(CONFIG_SENSOR_AP3045)) += platform_ap3045.o
 #ifdef CONFIG_TOUCHSCREEN_FTXXXX
 #obj-$(subst m,y,$(CONFIG_TOUCHSCREEN_FTXXXX)) += platform_ftxxxx.o
 #endif
+
+ifdef CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_I2C_DELUXE
+obj-$(subst m,y,$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_I2C_DELUXE))                += platform_synaptics_dsx.o
+endif
+
+#ifdef CONFIG_SENSORS_CM36686
+obj-$(subst m,y,$(CONFIG_SENSORS_CM36686)) += platform_cm36686.o
+ #endif
 
 # SPI Devices
 obj-$(subst m,y,$(CONFIG_SERIAL_MRST_MAX3110)) += platform_max3111.o
@@ -115,7 +126,11 @@ obj-$(subst m,y,$(CONFIG_VIDEO_MT9D113))				+= platform_mt9d113.o
 obj-$(subst m,y,$(CONFIG_VIDEO_MT9M114))				+= platform_mt9m114.o
 obj-$(subst m,y,$(CONFIG_VIDEO_MT9V113))				+= platform_mt9v113.o
 obj-$(subst m,y,$(CONFIG_VIDEO_OV8830))					+= platform_ov8830.o
+ifdef CONFIG_EXTERNAL_BTNS_CAMERA
+obj-$(subst m,y,$(CONFIG_VIDEO_OV8858))					+= platform_ov8858_btns.o
+else
 obj-$(subst m,y,$(CONFIG_VIDEO_OV8858))					+= platform_ov8858.o
+endif
 obj-$(subst m,y,$(CONFIG_VIDEO_IMX))					+= platform_imx208.o
 obj-$(subst m,y,$(CONFIG_VIDEO_IMX))					+= platform_imx175.o
 obj-$(subst m,y,$(CONFIG_VIDEO_IMX))					+= platform_imx135.o
@@ -126,11 +141,13 @@ obj-$(subst m,y,$(CONFIG_VIDEO_S5K8AAY))				+= platform_s5k8aay.o
 obj-$(subst m,y,$(CONFIG_VIDEO_S5K6B2YX))				+= platform_s5k6b2yx.o
 obj-$(subst m,y,$(CONFIG_VIDEO_OV9724))					+= platform_ov9724.o
 obj-$(subst m,y,$(CONFIG_VIDEO_OV2722))					+= platform_ov2722.o
+obj-$(subst m,y,$(CONFIG_VIDEO_OV2685))					+= platform_ov2685.o
 obj-$(subst m,y,$(CONFIG_VIDEO_GC2235))					+= platform_gc2235.o
 obj-$(subst m,y,$(CONFIG_VIDEO_OV5693))					+= platform_ov5693.o
-obj-$(subst m,y,$(CONFIG_VIDEO_OV5670))					+= platform_ov5670.o
-obj-$(subst m,y,$(CONFIG_VIDEO_T4K37))                  		+= platform_t4k37.o
-obj-$(subst m,y,$(CONFIG_VIDEO_T4K35))                  		+= platform_t4k35.o
+obj-$(subst m,y,$(CONFIG_VIDEO_OV5670))                                 += platform_ov5670.o
+obj-$(subst m,y,$(CONFIG_VIDEO_T4K37))                                  += platform_t4k37.o
+obj-$(subst m,y,$(CONFIG_LEDS_LM3642))					+= platform_leds_lm3642.o
+obj-$(subst m,y,$(CONFIG_VIDEO_IMX))					+= platform_imx227.o
 obj-$(subst m,y,$(CONFIG_VIDEO_LM3554))					+= platform_lm3554.o
 obj-$(subst m,y,$(CONFIG_VIDEO_LM3559))					+= platform_lm3559.o
 obj-$(subst m,y,$(CONFIG_VIDEO_LM3642))					+= platform_lm3642.o
@@ -138,6 +155,7 @@ obj-$(subst m,y,$(CONFIG_VIDEO_AP1302))					+= platform_ap1302.o
 obj-$(subst m,y,$(CONFIG_VIDEO_OV680))					+= platform_ov680.o platform_fsa642.o
 obj-$(subst m,y,$(CONFIG_VIDEO_CSI_XACTOR))				+= platform_csi_xactor.o
 obj-$(subst m,y,$(CONFIG_VIDEO_M10MO))					+= platform_m10mo.o
+obj-$(subst m,y,$(CONFIG_VIDEO_M12MO))					+= platform_m12mo.o
 obj-$(subst m,y,$(CONFIG_VIDEO_PIXTER))					+= platform_pixter.o
 obj-$(subst m,y,$(CONFIG_VIDEO_AR0543_RAW))				+= platform_ar0543_raw.o
 obj-$(subst m,y,$(CONFIG_VIDEO_HM2056_RAW))				+= platform_hm2056_raw.o
@@ -151,7 +169,6 @@ obj-$(subst m,y,$(CONFIG_BATTERY_MAX17050)) += platform_max17042.o
 endif
 obj-$(subst m,y,$(CONFIG_CHARGER_SMB347))				+= platform_smb347.o
 # Charger Device
-obj-$(subst m,y,$(CONFIG_A500CG_BATTERY_SMB347))			+= platform_a500cg_smb347.o
 obj-$(subst m,y,$(CONFIG_SMB1357_CHARGER))				+= platform_smb1357.o
 # LED Device
 obj-$(subst m,y,$(CONFIG_LEDS_ASUS))					+= platform_leds_asus.o
@@ -177,7 +194,4 @@ obj-$(subst m,y,$(CONFIG_BCM_2079x)) += platform_bcm2079x.o
 obj-y += platform_display.o
 
 # Add cflags to build for CTP board
-ccflags-$(CONFIG_SND_CTP_MACHINE) += -DCSS15
-
-obj-$(subst m,y,$(CONFIG_KXTJ9_SENSOR)) += platform_accel.o
 ccflags-$(CONFIG_VIDEO_ATOMISP_CTP) += -DCSS15

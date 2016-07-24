@@ -208,7 +208,6 @@ int i915_set_plane_zorder(struct drm_device *dev, void *data,
 	u32 order = zorder->order;
 	int s1_zorder, s1_bottom, s2_zorder, s2_bottom;
 	int pipe = (order >> 31) & 0x1;
-	int z_order = order & 0x000F;
 	struct intel_crtc *intel_crtc =
 			to_intel_crtc(dev_priv->plane_to_crtc_mapping[pipe]);
 
@@ -274,20 +273,6 @@ calc_zorder:
 	else
 		I915_WRITE(SPCNTR(pipe, 1), val);
 
-	if (z_order != P1S1S2C1 && z_order != P1S2S1C1)
-		intel_crtc->primary_alpha = true;
-	else
-		intel_crtc->primary_alpha = false;
-
-	if (z_order != S1P1S2C1 && z_order != S1S2P1C1)
-		intel_crtc->sprite0_alpha = true;
-	else
-		intel_crtc->sprite0_alpha = false;
-
-	if (z_order != S2P1S1C1 && z_order != S2S1P1C1)
-		intel_crtc->sprite1_alpha = true;
-	else
-		intel_crtc->sprite1_alpha = false;
 	return 0;
 }
 
@@ -313,21 +298,12 @@ vlv_update_plane(struct drm_plane *dplane, struct drm_crtc *crtc,
 	u32 sprctl;
 	u32 mask, shift;
 	bool rotate = false;
-	bool alpha = true;
 
 	sprctl = I915_READ(SPCNTR(pipe, plane));
 	/* Mask out pixel format bits in case we change it */
 	sprctl &= ~SP_PIXFORMAT_MASK;
 	sprctl &= ~SP_YUV_BYTE_ORDER_MASK;
 	sprctl &= ~SP_TILED;
-
-	/* plane alpha */
-	if (plane && intel_crtc->sprite1_alpha)
-		alpha = true;
-	else if (!plane && intel_crtc->sprite0_alpha)
-		alpha = true;
-	else
-		alpha = false;
 
 	switch (fb->pixel_format) {
 	case DRM_FORMAT_YUYV:
@@ -349,28 +325,28 @@ vlv_update_plane(struct drm_plane *dplane, struct drm_crtc *crtc,
 		sprctl |= SP_FORMAT_BGRX8888;
 		break;
 	case DRM_FORMAT_ARGB8888:
-		if (alpha)
-			sprctl |= SP_FORMAT_BGRA8888;
-		else
+		if (!intel_plane->alpha)
 			sprctl |= SP_FORMAT_BGRX8888;
+		else
+			sprctl |= SP_FORMAT_BGRA8888;
 		break;
 	case DRM_FORMAT_XBGR2101010:
 		sprctl |= SP_FORMAT_RGBX1010102;
 		break;
 	case DRM_FORMAT_ABGR2101010:
-		if (alpha)
-			sprctl |= SP_FORMAT_RGBA1010102;
-		else
+		if (!intel_plane->alpha)
 			sprctl |= SP_FORMAT_RGBX1010102;
+		else
+			sprctl |= SP_FORMAT_RGBA1010102;
 		break;
 	case DRM_FORMAT_XBGR8888:
 		sprctl |= SP_FORMAT_RGBX8888;
 		break;
 	case DRM_FORMAT_ABGR8888:
-		if (alpha)
-			sprctl |= SP_FORMAT_RGBA8888;
-		else
+		if (!intel_plane->alpha)
 			sprctl |= SP_FORMAT_RGBX8888;
+		else
+			sprctl |= SP_FORMAT_RGBA8888;
 		break;
 	default:
 		/*
@@ -381,22 +357,10 @@ vlv_update_plane(struct drm_plane *dplane, struct drm_crtc *crtc,
 		break;
 	}
 
-	if (obj->tiling_mode != I915_TILING_NONE) {
+	if (obj->tiling_mode != I915_TILING_NONE)
 		sprctl |= SP_TILED;
-		dev_priv->is_tiled = true;
-	} else {
+	else
 		sprctl &= ~SP_TILED;
-		dev_priv->is_tiled = false;
-		/*
-		 * TODO:In linear mode disable maxfifo, hack to the
-		 * FADiag app flicker issue.
-		 */
-		if (dev_priv->maxfifo_enabled && !dev_priv->atomic_update) {
-			I915_WRITE(FW_BLC_SELF_VLV, ~FW_CSPWRDWNEN);
-			dev_priv->maxfifo_enabled = false;
-			intel_wait_for_vblank(dev, pipe);
-		}
-	}
 
 	sprctl |= SP_ENABLE;
 
@@ -552,7 +516,15 @@ vlv_update_plane(struct drm_plane *dplane, struct drm_crtc *crtc,
 		I915_WRITE_BITS(VLV_DDL(pipe), 0x00, mask);
 
 	intel_plane->reg.cntr = sprctl;
+	intel_plane->reg.surf = I915_READ(SPSURF(pipe, plane));
+	/* mask the surface base addr offset bits */
+	intel_plane->reg.surf &= ~DISP_BASEADDR_MASK;
 	intel_plane->reg.surf |= i915_gem_obj_ggtt_offset(obj) + sprsurf_offset;
+	/* update the rrb2 bit status */
+	if (intel_plane->rrb2_enable)
+		intel_plane->reg.surf |= PLANE_RESERVED_REG_BIT_2_ENABLE;
+	else
+		intel_plane->reg.surf &= ~PLANE_RESERVED_REG_BIT_2_ENABLE;
 	if (!dev_priv->atomic_update) {
 		I915_WRITE(SPCNTR(pipe, plane), sprctl);
 		I915_MODIFY_DISPBASE(SPSURF(pipe, plane), i915_gem_obj_ggtt_offset(obj) +
@@ -560,7 +532,6 @@ vlv_update_plane(struct drm_plane *dplane, struct drm_crtc *crtc,
 	}
 	i915_update_plane_stat(dev_priv, pipe, plane, true, SPRITE_PLANE);
 
-	intel_plane->last_plane_state = true; /* true means enabled */
 	if (event == NULL)
 		POSTING_READ(SPSURF(pipe, plane));
 
@@ -593,7 +564,9 @@ vlv_disable_plane(struct drm_plane *dplane, struct drm_crtc *crtc)
 		I915_WRITE(FW_BLC_SELF_VLV, FW_CSPWRDWNEN);
 #endif
 	/* Activate double buffered register update */
-	intel_plane->reg.surf = 0;
+	intel_plane->reg.surf = I915_READ(SPSURF(pipe, plane));
+	/* mask the surface base addr offset bits */
+	intel_plane->reg.surf &= ~DISP_BASEADDR_MASK;
 	if (!dev_priv->atomic_update) {
 		I915_MODIFY_DISPBASE(SPSURF(pipe, plane), 0);
 		POSTING_READ(SPSURF(pipe, plane));
@@ -1078,8 +1051,6 @@ intel_enable_primary(struct drm_plane *dplane, struct drm_crtc *crtc)
 	intel_crtc->primary_disabled = false;
 	intel_update_fbc(dev);
 	intel_update_drrs(dev);
-	if (!dev_priv->atomic_update)
-		intel_update_watermarks(dev);
 
 	intel_crtc->reg.cntr = I915_READ(reg) | DISPLAY_PLANE_ENABLE;
 	intel_plane->reg.dspcntr = I915_READ(reg) | DISPLAY_PLANE_ENABLE;
@@ -1231,8 +1202,10 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 	struct intel_unpin_work *work = NULL;
 
 	/* Avoid update plane operation if shutdown is in progress */
-	if (dev_priv->pm.shutdown_in_progress)
+	if (dev_priv->pm.shutdown_in_progress) {
+		DRM_ERROR("shutdown in progress, cant proceed with flip req\n");
 		return -EINVAL;
+	}
 
 	intel_fb = to_intel_framebuffer(fb);
 	obj = intel_fb->obj;
@@ -1419,8 +1392,10 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 		INIT_WORK(&work->work, intel_unpin_sprite_work_fn);
 
 		ret = drm_vblank_get(dev, intel_crtc->pipe);
-		if (ret)
+		if (ret) {
+			DRM_ERROR("get vblank failed with %d\n", ret);
 			goto free_work;
+		}
 
 		/* We borrow the event spin lock for protecting unpin_work */
 		spin_lock_irqsave(&dev->event_lock, flags);
@@ -1457,7 +1432,13 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 	drm_gem_object_reference(&obj->base);
 	ret = intel_pin_and_fence_fb_obj(dev, obj, NULL);
 	if (ret) {
+		DRM_ERROR("pin and fence of fb failed with %d\n", ret);
 		drm_gem_object_unreference(&obj->base);
+		spin_lock_irqsave(&dev->event_lock, flags);
+		intel_crtc->sprite_unpin_work = NULL;
+		spin_unlock_irqrestore(&dev->event_lock, flags);
+		if (event)
+			drm_vblank_put(dev, intel_crtc->pipe);
 		goto out_unlock;
 	}
 	intel_plane->old_obj = intel_plane->obj;

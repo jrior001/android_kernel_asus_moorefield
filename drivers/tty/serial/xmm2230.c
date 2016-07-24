@@ -75,6 +75,7 @@
 #define IFX_SPI_HEADER_0		(-1)
 #define IFX_SPI_HEADER_F		(-2)
 
+#define PO_POST_DELAY		200
 
 #define IFX_SPI_IPC_TIMEOUT_ATTEMPTS	3
 
@@ -244,18 +245,20 @@ static inline void swap_buf_32(unsigned char *buf, int len, void *end)
 static void mrdy_assert(struct ifx_spi_device *ifx_dev)
 {
 	unsigned long flags;
-	int val = gpio_get_value(ifx_dev->gpio.srdy);
+	int val;
 
 	dev_dbg(&ifx_dev->spi_dev->dev, "Enter: [%s]\n", __func__);
 
+	spin_lock_irqsave(&ifx_dev->timer_lock, flags);
+	val = gpio_get_value(ifx_dev->gpio.srdy);
 	if (!val) {
-		spin_lock_irqsave(&ifx_dev->timer_lock, flags);
 		if (!test_and_set_bit(IFX_SPI_STATE_TIMER_PENDING,
 				      &ifx_dev->flags)) {
 			mod_timer(&ifx_dev->spi_timer, jiffies + IFX_SPI_TIMEOUT_SEC*HZ);
 		}
-		spin_unlock_irqrestore(&ifx_dev->timer_lock, flags);
 	}
+	spin_unlock_irqrestore(&ifx_dev->timer_lock, flags);
+
 	ifx_spi_power_state_set(ifx_dev, IFX_SPI_POWER_DATA_PENDING);
 	mrdy_set_high(ifx_dev);
 }
@@ -298,9 +301,11 @@ static void ifx_spi_timeout(unsigned long arg)
 			if (test_bit(IFX_SPI_STATE_IO_AVAILABLE, &ifx_dev->flags)) {
 				ifx_spi_power_state_set(ifx_dev, IFX_SPI_POWER_SRDY);
 				tasklet_schedule(&ifx_dev->io_work_tasklet);
+				if (!wake_lock_active(&ifx_dev->wake_lock))
+					wake_lock(&ifx_dev->wake_lock);
 				dev_err(&ifx_dev->spi_dev->dev, "*** handle this srdy interrupt ***");
 			} else {
-			    mrdy_set_low(ifx_dev);
+				mrdy_set_low(ifx_dev);
 				tty_port_tty_hangup(&ifx_dev->tty_port, false);
 				clear_bit(IFX_SPI_STATE_TIMER_PENDING, &ifx_dev->flags);
 				ifx_spi_power_state_clear(ifx_dev,
@@ -556,9 +561,6 @@ static void ifx_spi_handle_srdy(struct ifx_spi_device *ifx_dev)
 {
 	unsigned long flags;
 
-	if (!wake_lock_active(&ifx_dev->wake_lock))
-		wake_lock(&ifx_dev->wake_lock);
-
 	spin_lock_irqsave(&ifx_dev->timer_lock, flags);
 	if (test_bit(IFX_SPI_STATE_TIMER_PENDING, &ifx_dev->flags)) {
 		del_timer(&ifx_dev->spi_timer);
@@ -574,9 +576,11 @@ static void ifx_spi_handle_srdy(struct ifx_spi_device *ifx_dev)
 
 	ifx_spi_power_state_set(ifx_dev, IFX_SPI_POWER_SRDY);
 
-	if (!test_bit(IFX_SPI_STATE_IO_IN_PROGRESS, &ifx_dev->flags))
+	if (!test_bit(IFX_SPI_STATE_IO_IN_PROGRESS, &ifx_dev->flags)) {
 		tasklet_schedule(&ifx_dev->io_work_tasklet);
-	else
+		if (!wake_lock_active(&ifx_dev->wake_lock))
+			wake_lock(&ifx_dev->wake_lock);
+	} else
 		set_bit(IFX_SPI_STATE_IO_READY, &ifx_dev->flags);
 }
 
@@ -1290,6 +1294,7 @@ error_ret2:
 			IFX_SPI_TRANSFER_SIZE,
 			ifx_dev->rx_buffer,
 			ifx_dev->rx_bus);
+			wake_lock_destroy(&ifx_dev->wake_lock);
 error_ret1:
 	dma_free_coherent(&ifx_dev->spi_dev->dev,
 			IFX_SPI_TRANSFER_SIZE,
@@ -1363,13 +1368,13 @@ static int ifx_spi_pm_suspend(struct device *dev)
 
 	printk(KERN_INFO "enter ifx_spi_pm_suspend\n");
 
-	if(!test_bit(IFX_SPI_STATE_IO_IN_PROGRESS, &ifx_dev->flags)&& \
-		!test_bit(IFX_SPI_STATE_IO_READY, &ifx_dev->flags)&& \
+	if (!test_bit(IFX_SPI_STATE_IO_IN_PROGRESS, &ifx_dev->flags) && \
+		!test_bit(IFX_SPI_STATE_IO_READY, &ifx_dev->flags) && \
 		!test_bit(IFX_SPI_STATE_TIMER_PENDING, &ifx_dev->flags))
 	{
 		tasklet_disable(&ifx_dev->io_work_tasklet);
 		printk(KERN_INFO "exit ifx_spi_pm_suspend, tasklet disable\n");
-	return 0;
+		return 0;
 	} else {
 		printk(KERN_INFO "ifx_spi_pm_suspend() return fail: ifx_dev->flags=[%lu]\n", ifx_dev->flags);
 		return -EBUSY;

@@ -254,6 +254,17 @@ static int charge_invalid_battery(void)
 		return 0;
 }
 
+static void override_batt_chrg_prof(struct ps_pse_mod_prof *batt_prof)
+{
+	int i;
+
+	for (i = 0; i <= batt_prof->temp_mon_ranges; i++) {
+		batt_prof->temp_mon_range[i].full_chrg_vol = 4100;
+		batt_prof->temp_mon_range[i].maint_chrg_vol_ll = 4000;
+		batt_prof->temp_mon_range[i].maint_chrg_vol_ul = 4100;
+	}
+}
+
 static void set_batt_chrg_prof(struct ps_pse_mod_prof *batt_prof,
 				struct ps_pse_mod_prof *pentry)
 {
@@ -291,6 +302,14 @@ static void set_batt_chrg_prof(struct ps_pse_mod_prof *batt_prof,
 		}
 	}
 	batt_prof->temp_mon_ranges = j;
+
+	/* Overriding Charger profile values for UER Battery */
+	if (INTEL_MID_BOARD(1, PHONE, MOFD) ||
+		INTEL_MID_BOARD(1, TABLET, MOFD)) {
+		if ((pentry->batt_id[0] == 'I') && (pentry->batt_id[1] == '2'))
+			override_batt_chrg_prof(batt_prof);
+	}
+
 	return;
 }
 

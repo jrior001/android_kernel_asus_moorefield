@@ -486,6 +486,13 @@ config LEDS_ASUS
 	  This option enables support for the LEDs on the project.
 	  Say Y to enable LEDs on the project.
 
+config LEDS_KTD2026
+	tristate "LED Support for KTD2026"
+	depends on LEDS_CLASS && I2C
+	help
+	  This option enables support for the LEDs connected to KTD2026.
+	  Say Y to enable LEDs connected to KTD2026.
+
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
 

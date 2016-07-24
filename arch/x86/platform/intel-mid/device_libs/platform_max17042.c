@@ -442,6 +442,7 @@ static void init_callbacks(struct max17042_platform_data *pdata)
 		/* MRFL Phones and tablets*/
 		pdata->battery_health = mrfl_get_bat_health;
 		pdata->battery_pack_temp = pmic_get_battery_pack_temp;
+		pdata->reset_chip = true;
 		pdata->get_vmin_threshold = mrfl_get_vsys_min;
 		pdata->get_vmax_threshold = mrfl_get_volt_max;
 	} else if (INTEL_MID_BOARD(1, TABLET, BYT) ||

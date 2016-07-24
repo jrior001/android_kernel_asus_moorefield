@@ -1214,6 +1214,12 @@ struct intel_vbt_target_res {
 	int yres;
 };
 
+#define HDMI_VSWING_1000MV_2DB		0
+#define HDMI_VSWING_1000MV_0DB		1
+#define HDMI_VSWING_800MV_0DB		2
+#define HDMI_VSWING_600MV_2DB		3
+#define HDMI_VSWING_600MV_0DB		4
+
 struct intel_vbt_data {
 	struct drm_display_mode *lfp_lvds_vbt_mode; /* if any */
 	struct drm_display_mode *sdvo_lvds_vbt_mode; /* if any */
@@ -1248,6 +1254,14 @@ struct intel_vbt_data {
 	int edp_bpp;
 	struct edp_power_seq edp_pps;
 
+	/* HDMI pre-emp Vswing Setting; */
+	int hdmi_level_shifter;
+
+	struct {
+		u16 pwm_freq_hz;
+		bool active_low_pwm;
+	} backlight;
+
 	/* MIPI DSI */
 	struct {
 		u8 seq_version;
@@ -1260,13 +1274,12 @@ struct intel_vbt_data {
 	} dsi;
 
 	int crt_ddc_pin;
-	/* Assuming only 1 LFP */
-	u16 pwm_frequency;
 
 	int child_dev_num;
 
 	struct child_device_config *child_dev;
 	struct intel_vbt_target_res target_res;
+	u8 init_backlight_level;
 };
 
 enum intel_ddb_partitioning {
@@ -1367,9 +1380,6 @@ struct i915_plane_stat {
 	bool sprite_c;
 	bool sprite_d;
 };
-#define DL_PRIMARY_MASK 0x000000ff
-#define DL_SPRITEA_MASK 0x0000ff00
-#define DL_SPRITEB_MASK 0x00ff0000
 
 typedef struct drm_i915_private {
 	struct drm_device *dev;
@@ -1425,7 +1435,6 @@ typedef struct drm_i915_private {
 	u32 irq_mask;
 	u32 hotplugstat;
 	u32 pfit_pipe;
-	struct regulator *v3p3sx_reg;
 	bool s0ixstat;
 	bool audio_suspended;
 	bool late_resume;
@@ -1436,7 +1445,6 @@ typedef struct drm_i915_private {
 	bool clockbend;
 	bool unplug;
 	bool maxfifo_enabled;
-	bool is_tiled;
 	bool atomic_update;
 	bool pri_update;
 	bool wait_vbl;
@@ -2831,8 +2839,9 @@ void vlv_punit_write32_bits(struct drm_i915_private *dev_priv,
 u32 vlv_punit_read(struct drm_i915_private *dev_priv, u8 addr);
 void vlv_punit_write(struct drm_i915_private *dev_priv, u8 addr, u32 val);
 u32 vlv_nc_read(struct drm_i915_private *dev_priv, u16 addr);
-u32 vlv_gpio_nc_read(struct drm_i915_private *dev_priv, u32 reg);
-void vlv_gpio_nc_write(struct drm_i915_private *dev_priv, u32 reg, u32 val);
+u32 vlv_gpio_read(struct drm_i915_private *dev_priv, u8 core_offset, u32 reg);
+void vlv_gpio_write(struct drm_i915_private *dev_priv, u8 core_offset,
+			u32 reg, u32 val);
 u32 vlv_cck_read(struct drm_i915_private *dev_priv, u32 reg);
 void vlv_cck_write(struct drm_i915_private *dev_priv, u32 reg, u32 val);
 void vlv_cck_write_bits(struct drm_i915_private *dev_priv, u32 reg, u32 val, u32 mask);

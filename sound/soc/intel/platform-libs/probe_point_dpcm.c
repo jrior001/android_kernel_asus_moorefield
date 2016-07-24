@@ -21,6 +21,7 @@ static const struct sst_probe_config sst_probes[] = {
 	/* gain outputs  */
 	{ "pcm0_in gain", SST_PATH_INDEX_PCM0_IN, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
 	{ "pcm1_in gain", SST_PATH_INDEX_PCM1_IN, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
+	{ "pcm2_in gain", SST_PATH_INDEX_PCM2_IN, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
 	{ "pcm1_out gain", SST_PATH_INDEX_PCM1_OUT, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
 	{ "pcm2_out gain", SST_PATH_INDEX_PCM2_OUT, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
 	{ "pcm3_out gain", SST_PATH_INDEX_PCM3_OUT, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
@@ -52,6 +53,8 @@ static const struct sst_probe_config sst_probes[] = {
 	{ "modem_in gain", SST_PATH_INDEX_MODEM_IN, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
 	{ "sprot_loop_out gain", SST_PATH_INDEX_SPROT_LOOP_OUT, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
 	{ "sidetone_in", SST_PATH_INDEX_SIDETONE_IN, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
+	{ "low_pcm0_in gain", SST_PATH_INDEX_LOW_PCM0_IN, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
+	{ "low_pcm0_out gain", SST_PATH_INDEX_LOW_PCM0_OUT, SST_MODULE_ID_GAIN_CELL, SST_TASK_SBA, { 1, 2, 1 } },
 
 	/* SRC */
 	{ "media0_in src", SST_PATH_INDEX_MEDIA0_IN, SST_MODULE_ID_SRC, SST_TASK_MMX, { 1, 2, 1 } },

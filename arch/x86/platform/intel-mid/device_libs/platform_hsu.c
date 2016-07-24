@@ -52,7 +52,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 96+29,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port1] = {
 				.id = 1,
@@ -67,13 +66,11 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 66,
 				.rts_alt = 2,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port2] = {
 				.id = 2,
 				.name = HSU_GPS_PORT,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port_share] = {
 				.id = 1,
@@ -84,7 +81,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.tx_gpio = 96+31,
 				.tx_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 		},
 	},
@@ -93,7 +89,7 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 			[hsu_port0] = {
 				.id = 0,
 				.name = HSU_BT_PORT,
-				//.wake_gpio = 42,
+				.wake_gpio = 42,
 				.rx_gpio = 96+26,
 				.rx_alt = 1,
 				.tx_gpio = 96+27,
@@ -103,7 +99,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 96+29,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port1] = {
 				.id = 1,
@@ -118,7 +113,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 66,
 				.rts_alt = 2,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port2] = {
 				.id = 2,
@@ -127,7 +121,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rx_gpio = 67,
 				.rx_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port_share] = {
 				.id = 1,
@@ -142,7 +135,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 96+32,
 				.rts_alt = 2,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 		},
 		[hsu_pid_vtb_pro] = {
@@ -158,7 +150,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 96+29,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port1] = {
 				.id = 1,
@@ -173,7 +164,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 96+32,
 				.rts_alt = 2,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port2] = {
 				.id = 2,
@@ -182,7 +172,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rx_gpio = 67,
 				.rx_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port_share] = {
 				.id = 1,
@@ -197,7 +186,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 66,
 				.rts_alt = 2,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 		},
 		[hsu_pid_vtb_eng] = {
@@ -213,7 +201,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 96+29,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port1] = {
 				.id = 1,
@@ -228,7 +215,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 66,
 				.rts_alt = 2,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port2] = {
 				.id = 2,
@@ -237,7 +223,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rx_gpio = 67,
 				.rx_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port_share] = {
 				.id = 1,
@@ -252,7 +237,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 96+32,
 				.rts_alt = 2,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 		},
 	},
@@ -270,7 +254,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 125,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port1] = {
 				.id = 1,
@@ -285,7 +268,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 129,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port2] = {
 				.id = 2,
@@ -298,7 +280,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 133,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 		},
 	},
@@ -316,7 +297,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 125,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port1] = {
 				.id = 1,
@@ -329,7 +309,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 129,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port2] = {
 				.id = 2,
@@ -342,7 +321,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 133,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 		},
 	},
@@ -354,7 +332,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 72,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port1] = {
 				.id = 1,
@@ -365,7 +342,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 76,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 		},
 	},
@@ -377,7 +353,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 0,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 			[hsu_port1] = {
 				.id = 1,
@@ -389,7 +364,6 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
 				.rts_gpio = 0,
 				.rts_alt = 1,
 				.lpm = false,
-				.is_wake_irq_requested = false,
 			},
 		},
 	},
@@ -703,6 +677,52 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
 			.hw_context_save = 1,
 		},
 	},
+	[hsu_btns] = {
+		[hsu_port0] = {
+			.type = bt_port,
+			.hw_ip = hsu_intel,
+			.index = 0,
+			.name = HSU_BT_PORT,
+			.idle = 20,
+			.hw_ctrl_cts = 1,
+			.hw_init = intel_mid_hsu_init,
+			.hw_set_alt = intel_mid_hsu_switch,
+			.hw_set_rts = intel_mid_hsu_rts,
+			.hw_suspend = intel_mid_hsu_suspend,
+			.hw_resume = intel_mid_hsu_resume,
+			.hw_get_clk = intel_mid_hsu_get_clk,
+			.hw_context_save = 1,
+		},
+		[hsu_port1] = {
+			.type = gps_port,
+			.hw_ip = hsu_intel,
+			.index = 1,
+			.name = HSU_GPS_PORT,
+			.idle = 40,
+			.preamble = 1,
+			.hw_init = intel_mid_hsu_init,
+			.hw_set_alt = intel_mid_hsu_switch,
+			.hw_set_rts = intel_mid_hsu_rts,
+			.hw_suspend = intel_mid_hsu_suspend,
+			.hw_suspend_post = intel_mid_hsu_suspend_post,
+			.hw_resume = intel_mid_hsu_resume,
+			.hw_get_clk = intel_mid_hsu_get_clk,
+			.hw_context_save = 1,
+		},
+		[hsu_port2] = {
+			.type = debug_port,
+			.hw_ip = hsu_intel,
+			.index = 2,
+			.name = HSU_DEBUG_PORT,
+			.idle = 2000,
+			.hw_init = intel_mid_hsu_init,
+			.hw_set_alt = intel_mid_hsu_switch,
+			.hw_suspend = intel_mid_hsu_suspend,
+			.hw_resume = intel_mid_hsu_resume,
+			.hw_get_clk = intel_mid_hsu_get_clk,
+			.hw_context_save = 1,
+		},
+	},
 
 };
 
@@ -841,7 +861,7 @@ void intel_mid_hsu_suspend(int port, struct device *dev, irq_handler_t wake_isr)
 	if (info->lpm)
 		return;
 
-	if (info->wake_gpio && !info->is_wake_irq_requested) {
+	if (info->wake_gpio) {
 		lnw_gpio_set_alt(info->wake_gpio, LNW_GPIO);
 		gpio_direction_input(info->wake_gpio);
 		udelay(10);
@@ -850,8 +870,6 @@ void intel_mid_hsu_suspend(int port, struct device *dev, irq_handler_t wake_isr)
 				info->name, info->dev);
 		if (ret)
 			dev_err(info->dev, "failed to register wakeup irq\n");
-		else
-			info->is_wake_irq_requested = true;
 	}
 }
 
@@ -862,11 +880,8 @@ void intel_mid_hsu_resume(int port, struct device *dev)
         if (info->lpm)
                 return;
 
-	if (info->wake_gpio && info->is_wake_irq_requested)
-	{
+	if (info->wake_gpio)
 		free_irq(gpio_to_irq(info->wake_gpio), info->dev);
-		info->is_wake_irq_requested = false;
-	}
 
 	if (info->rx_gpio) {
 		lnw_gpio_set_alt(info->rx_gpio, info->rx_alt);
@@ -1230,7 +1245,11 @@ static __init int hsu_dev_platform_data(void)
 	/* tangier */
 	case 0x3C:
 	case 0x4A:
-		platform_hsu_info = &hsu_port_cfgs[hsu_tng][0];
+		if (INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, PRO) ||
+			INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, ENG))
+			platform_hsu_info = &hsu_port_cfgs[hsu_btns][0];
+		else
+			platform_hsu_info = &hsu_port_cfgs[hsu_tng][0];
 		hsu_port_gpio_mux = &hsu_port_pin_cfgs[hsu_tng][hsu_pid_def][0];
 		break;
 	/* valleyview*/

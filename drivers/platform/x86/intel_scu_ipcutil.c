@@ -146,11 +146,14 @@ struct osnib_target_os {
 
 static struct osnib_target_os osnib_target_oses[] = {
 	{ "main", SIGNED_MOS_ATTR },
+	{ "main-psh-debug", SIGNED_MOS_PSH_ATTR },
+	{ "main-scu-debug", SIGNED_MOS_SCU_ATTR },
 	{ "charging", SIGNED_COS_ATTR  },
 	{ "recovery", SIGNED_RECOVERY_ATTR },
 	{ "fastboot", SIGNED_POS_ATTR },
 	{ "factory", SIGNED_FACTORY_ATTR },
 	{ "factory2", SIGNED_FACTORY2_ATTR },
+        { "bootoneshot", SIGNED_BOOTONESHOOT_ATTR },
 };
 
 
@@ -1296,6 +1299,50 @@ exit:
 int intel_scu_ipc_write_osnib_rr(u8 rr)
 {
 	int i;
+	u8 data;
+	int ret = oshob_info->scu_ipc_read_osnib(
+			&data,
+			1,
+			offsetof(struct scu_ipc_osnib, alarm));
+
+	pr_debug("intel_scu_ipc_write_osnib_rr: scu_ipc_read_osnib - %d data:0x%x\n",
+		ret, data);
+
+	if (rr == SIGNED_MOS_PSH_ATTR || rr == SIGNED_MOS_SCU_ATTR || rr == SIGNED_MOS_DC_ATTR) {
+		/*
+		 * Add psh-debug bit @ 2nd bit of alarm of osnib
+		 * Add scu-debug bit @ 3rd bit of alarm of osnib
+		 * Add dc-debug bit  @ 4th bit of alarm of osnib
+		 */
+
+		if (rr == SIGNED_MOS_PSH_ATTR)
+			data = data | 0x2;
+		else if (rr == SIGNED_MOS_SCU_ATTR)
+			data = data | 0x4;
+		else if (rr == SIGNED_MOS_DC_ATTR)
+			data = data | 0x8;
+
+		ret = oshob_info->scu_ipc_write_osnib(
+			&data,
+			1,
+			offsetof(struct scu_ipc_osnib, alarm));
+
+		pr_debug("intel_scu_ipc_write_osnib_rr: RR data is 0x%x - %d\n",
+			data, ret);
+
+		/* Mark it as MOS*/
+		rr = SIGNED_MOS_ATTR;
+	} else {
+		/*Clear dcDebug for regular reboot with no args*/
+		data = data & 0x07;
+		ret = oshob_info->scu_ipc_write_osnib(
+			&data,
+			1,
+			offsetof(struct scu_ipc_osnib, alarm));
+
+		pr_debug("intel_scu_ipc_write_osnib_rr: clearing DCDebug and route logs to customer debug card - %d",
+			ret);
+	}
 
 	for (i = 0; i < ARRAY_SIZE(osnib_target_oses); i++) {
 		if (osnib_target_oses[i].id == rr) {
@@ -2305,6 +2352,7 @@ static ssize_t intel_scu_ipc_oemnib_write(struct file *file,
 	if (temp == NULL) {
 		pr_err(
 		"Write OEMNIB: Cannot allocate temp buffer for writting OEMNIB\n");
+		kfree(posnib_data);
 		return -ENOMEM;
 	}
 
@@ -2314,13 +2362,14 @@ static ssize_t intel_scu_ipc_oemnib_write(struct file *file,
 		pr_err(
 		"Write OEMNIB: Cannot transfer from user buf to OEMNIB buf\n");
 		kfree(posnib_data);
+		kfree(temp);
 		return -EFAULT;
 	}
 
 	ptrchar = temp;
 	ptr = posnib_data;
 
-	for (i = 0; i <= count - 1; i++) {
+	for (i = 0; i < count - 1; i++) {
 		if (*ptrchar >= '0' && *ptrchar <= '9')
 			*ptr = *ptrchar - '0';
 		if (*ptrchar >= 'A' && *ptrchar <= 'F')
@@ -2337,6 +2386,7 @@ static ssize_t intel_scu_ipc_oemnib_write(struct file *file,
 	if (ret < 0) {
 		pr_err("Write OEMNIB: ipc write of OEMNIB failed!!\n");
 		kfree(posnib_data);
+		kfree(temp);
 		return ret;
 	}
 

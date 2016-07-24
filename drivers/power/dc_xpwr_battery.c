@@ -81,11 +81,9 @@
 #define CV_4350				4350	/* 4350mV */
 
 #define DC_FG_VLTFW_REG			0x3C
-#define FG_VLTFW_N5C			0xD3	/* -5 DegC */
-#define FG_VLTFW_0C			0xA5	/* 0 DegC */
+#define FG_VLTFW_0C				0xFF	/* -9 DegC */
 #define DC_FG_VHTFW_REG			0x3D
-#define FG_VHTFW_60C			0x13	/* 60 DegC */
-#define FG_VHTFW_56C			0x15	/* 56 DegC */
+#define FG_VHTFW_56C			0x16	/* 55 DegC */
 
 #define DC_TEMP_IRQ_CFG_REG		0x42
 #define TEMP_IRQ_CFG_QWBTU		(1 << 0)
@@ -212,6 +210,11 @@ struct pmic_fg_info {
 };
 
 static struct pmic_fg_info *info_ptr;
+
+#ifdef CONFIG_BTNS_PMIC
+#define WAIT_TIME	12
+bool	reached_full_soc;
+#endif
 
 static enum power_supply_property pmic_fg_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
@@ -692,6 +695,10 @@ static int pmic_fg_get_battery_property(struct power_supply *psy,
 		if (ret < 0)
 			goto pmic_fg_read_err;
 		val->intval = ret;
+#ifdef CONFIG_BTNS_PMIC
+		if (reached_full_soc)
+			val->intval = 100;
+#endif
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
 		ret = pmic_fg_get_btemp(info, &value);
@@ -819,6 +826,12 @@ static void pmic_fg_status_monitor(struct work_struct *work)
 			       , cache_temp = INT_MAX;
 	int present_cap, present_health;
 
+#ifdef CONFIG_BTNS_PMIC
+	static int cap_count;
+	int ret = 0;
+	int current_now;
+#endif
+
 	mutex_lock(&info->lock);
 	present_cap = pmic_fg_get_capacity(info);
 	if (present_cap < 0) {
@@ -843,6 +856,25 @@ static void pmic_fg_status_monitor(struct work_struct *work)
 		cache_health = present_health;
 		cache_temp = info->btemp;
 	}
+#ifdef CONFIG_BTNS_PMIC
+	if (present_cap == 99) {
+		mutex_lock(&info->lock);
+		ret = pmic_fg_get_current(info, &current_now);
+		mutex_unlock(&info->lock);
+		if (ret < 0)
+			goto end_stat_mon;
+		if (current_now > 0)
+			cap_count = cap_count + 1;
+		else
+			cap_count = 0;
+	} else
+		cap_count = 0;
+
+	if (cap_count > WAIT_TIME)
+		reached_full_soc = true;
+	else
+		reached_full_soc = false;
+#endif
 end_stat_mon:
 	schedule_delayed_work(&info->status_monitor, STATUS_MON_DELAY_JIFFIES);
 }
@@ -1126,9 +1158,11 @@ static void pmic_fg_init_config_regs(struct pmic_fg_info *info)
 	if (ret < 0)
 		dev_err(&info->pdev->dev, "lowbatt thr set fail:%d\n", ret);
 
+#ifndef CONFIG_BTNS_PMIC
 	ret = pmic_fg_reg_writeb(info, DC_FG_CNTL_REG, 0xff);
 	if (ret < 0)
 		dev_err(&info->pdev->dev, "gauge cntl set fail:%d\n", ret);
+#endif
 
 	info->fg_init_done = true;
 	pmic_fg_dump_init_regs(info);

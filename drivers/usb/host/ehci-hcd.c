@@ -705,11 +705,18 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 	struct ehci_hcd		*ehci = hcd_to_ehci (hcd);
 	u32			status, masked_status, pcd_status = 0, cmd;
 	int			bh;
+	unsigned long		flags;
 #ifdef CONFIG_USB_HCD_HSIC
 	struct pci_dev	*pdev = to_pci_dev(hcd->self.controller);
 #endif
 
-	spin_lock (&ehci->lock);
+	/*
+	 * For threadirqs option we use spin_lock_irqsave() variant to prevent
+	 * deadlock with ehci hrtimer callback, because hrtimer callbacks run
+	 * in interrupt context even when threadirqs is specified. We can go
+	 * back to spin_lock() variant when hrtimer callbacks become threaded.
+	 */
+	spin_lock_irqsave(&ehci->lock, flags);
 
 	status = ehci_readl(ehci, &ehci->regs->status);
 
@@ -727,7 +734,7 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 
 	/* Shared IRQ? */
 	if (!masked_status || unlikely(ehci->rh_state == EHCI_RH_HALTED)) {
-		spin_unlock(&ehci->lock);
+		spin_unlock_irqrestore(&ehci->lock, flags);
 		return IRQ_NONE;
 	}
 
@@ -850,7 +857,7 @@ dead:
 
 	if (bh)
 		ehci_work (ehci);
-	spin_unlock (&ehci->lock);
+	spin_unlock_irqrestore(&ehci->lock, flags);
 	if (pcd_status)
 		usb_hcd_poll_rh_status(hcd);
 	return IRQ_HANDLED;
@@ -870,7 +877,7 @@ dead:
  * NOTE:  control, bulk, and interrupt share the same code to append TDs
  * to a (possibly active) QH, and the same QH scanning code.
  */
-static int ehci_urb_enqueue (
+int ehci_urb_enqueue (
 	struct usb_hcd	*hcd,
 	struct urb	*urb,
 	gfp_t		mem_flags
@@ -1182,7 +1189,7 @@ EXPORT_SYMBOL_GPL(ehci_resume);
  * individual entries can be overridden as needed.
  */
 
-static const struct hc_driver ehci_hc_driver = {
+static struct hc_driver ehci_hc_driver = {
 	.description =		hcd_name,
 	.product_desc =		"EHCI Host Controller",
 	.hcd_priv_size =	sizeof(struct ehci_hcd),

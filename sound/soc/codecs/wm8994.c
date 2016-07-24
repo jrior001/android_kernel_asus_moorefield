@@ -94,9 +94,9 @@ static int wm8994_retune_mobile_base[] = {
 
 static const struct wm8958_micd_rate micdet_rates[] = {
 	{ 32768,       true,  1, 4 },
-	{ 32768,       false, 1, 0 },
+	{ 32768,       false, 1, 1 },
 	{ 44100 * 256, true,  7, 10 },
-	{ 44100 * 256, false, 7, 9 },
+	{ 44100 * 256, false, 7, 10 },
 };
 
 static const struct wm8958_micd_rate jackdet_rates[] = {

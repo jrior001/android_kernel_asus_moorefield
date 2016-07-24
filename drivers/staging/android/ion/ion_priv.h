@@ -17,6 +17,7 @@
 #ifndef _ION_PRIV_H
 #define _ION_PRIV_H
 
+#include <linux/device.h>
 #include <linux/dma-direction.h>
 #include <linux/kref.h>
 #include <linux/mm_types.h>
@@ -25,6 +26,9 @@
 #include <linux/sched.h>
 #include <linux/shrinker.h>
 #include <linux/types.h>
+#ifdef CONFIG_ION_POOL_CACHE_POLICY
+#include <asm/cacheflush.h>
+#endif
 
 #include "ion.h"
 
@@ -37,6 +41,7 @@ struct ion_buffer *ion_handle_buffer(struct ion_handle *handle);
  * @dev:		back pointer to the ion_device
  * @heap:		back pointer to the heap the buffer came from
  * @flags:		buffer specific flags
+ * @private_flags:	internal buffer specific flags
  * @size:		size of the buffer
  * @priv_virt:		private data to the buffer representable as
  *			a void *
@@ -65,6 +70,7 @@ struct ion_buffer {
 	struct ion_device *dev;
 	struct ion_heap *heap;
 	unsigned long flags;
+	unsigned long private_flags;
 	size_t size;
 	union {
 		void *priv_virt;
@@ -97,7 +103,11 @@ void ion_buffer_destroy(struct ion_buffer *buffer);
  * @map_user		map memory to userspace
  *
  * allocate, phys, and map_user return 0 on success, -errno on error.
- * map_dma and map_kernel return pointer on success, ERR_PTR on error.
+ * map_dma and map_kernel return pointer on success, ERR_PTR on
+ * error. @free will be called with ION_PRIV_FLAG_SHRINKER_FREE set in
+ * the buffer's private_flags when called from a shrinker. In that
+ * case, the pages being free'd must be truly free'd back to the
+ * system, not put in a page pool or otherwise cached.
  */
 struct ion_heap_ops {
 	int (*allocate) (struct ion_heap *heap,
@@ -113,12 +123,24 @@ struct ion_heap_ops {
 	void (*unmap_kernel) (struct ion_heap *heap, struct ion_buffer *buffer);
 	int (*map_user) (struct ion_heap *mapper, struct ion_buffer *buffer,
 			 struct vm_area_struct *vma);
+	int (*shrink)(struct ion_heap *heap, gfp_t gfp_mask, int nr_to_scan);
 };
 
 /**
  * heap flags - flags between the heaps and core ion code
  */
 #define ION_HEAP_FLAG_DEFER_FREE (1 << 0)
+
+/**
+ * private flags - flags internal to ion
+ */
+/*
+ * Buffer is being freed from a shrinker function. Skip any possible
+ * heap-specific caching mechanism (e.g. page pools). Guarantees that
+ * any buffer storage that came from the system allocator will be
+ * returned to the system allocator.
+ */
+#define ION_PRIV_FLAG_SHRINKER_FREE (1 << 0)
 
 /**
  * struct ion_heap - represents a heap in the system
@@ -131,10 +153,7 @@ struct ion_heap_ops {
  *			allocating.  These are specified by platform data and
  *			MUST be unique
  * @name:		used for debugging
- * @shrinker:		a shrinker for the heap, if the heap caches system
- *			memory, it must define a shrinker to return it on low
- *			memory conditions, this includes system memory cached
- *			in the deferred free lists for heaps that support it
+ * @shrinker:		a shrinker for the heap
  * @free_list:		free list head if deferred free is used
  * @free_list_size	size of the deferred free list in bytes
  * @lock:		protects the free list
@@ -159,9 +178,10 @@ struct ion_heap {
 	struct shrinker shrinker;
 	struct list_head free_list;
 	size_t free_list_size;
-	struct rt_mutex lock;
+	spinlock_t free_lock;
 	wait_queue_head_t waitqueue;
 	struct task_struct *task;
+
 	int (*debug_show)(struct ion_heap *heap, struct seq_file *, void *);
 };
 
@@ -215,19 +235,17 @@ void ion_heap_unmap_kernel(struct ion_heap *, struct ion_buffer *);
 int ion_heap_map_user(struct ion_heap *, struct ion_buffer *,
 			struct vm_area_struct *);
 int ion_heap_buffer_zero(struct ion_buffer *buffer);
+int ion_heap_pages_zero(struct page *page, size_t size, pgprot_t pgprot);
 
 /**
- * ion_heap_alloc_pages - allocate pages from alloc_pages
- * @buffer:		the buffer to allocate for, used to extract the flags
- * @gfp_flags:		the gfp_t for the allocation
- * @order:		the order of the allocatoin
+ * ion_heap_init_shrinker
+ * @heap:		the heap
  *
- * This funciton allocations from alloc pages and also does any other
- * necessary operations based on the buffer->flags.  For buffers which
- * will be faulted in the pages are split using split_page
+ * If a heap sets the ION_HEAP_FLAG_DEFER_FREE flag or defines the shrink op
+ * this function will be called to setup a shrinker to shrink the freelists
+ * and call the heap's shrink op.
  */
-struct page *ion_heap_alloc_pages(struct ion_buffer *buffer, gfp_t gfp_flags,
-				  unsigned int order);
+void ion_heap_init_shrinker(struct ion_heap *heap);
 
 /**
  * ion_heap_init_deferred_free -- initialize deferred free functionality
@@ -242,7 +260,7 @@ int ion_heap_init_deferred_free(struct ion_heap *heap);
 /**
  * ion_heap_freelist_add - add a buffer to the deferred free list
  * @heap:		the heap
- * @buffer: 		the buffer
+ * @buffer:		the buffer
  *
  * Adds an item to the deferred freelist.
  */
@@ -259,6 +277,29 @@ void ion_heap_freelist_add(struct ion_heap *heap, struct ion_buffer *buffer);
  * total memory on the freelist.
  */
 size_t ion_heap_freelist_drain(struct ion_heap *heap, size_t size);
+
+/**
+ * ion_heap_freelist_shrink - drain the deferred free
+ *				list, skipping any heap-specific
+ *				pooling or caching mechanisms
+ *
+ * @heap:		the heap
+ * @size:		amount of memory to drain in bytes
+ *
+ * Drains the indicated amount of memory from the deferred freelist immediately.
+ * Returns the total amount freed.  The total freed may be higher depending
+ * on the size of the items in the list, or lower if there is insufficient
+ * total memory on the freelist.
+ *
+ * Unlike with @ion_heap_freelist_drain, don't put any pages back into
+ * page pools or otherwise cache the pages. Everything must be
+ * genuinely free'd back to the system. If you're free'ing from a
+ * shrinker you probably want to use this. Note that this relies on
+ * the heap.ops.free callback honoring the ION_PRIV_FLAG_SHRINKER_FREE
+ * flag.
+ */
+size_t ion_heap_freelist_shrink(struct ion_heap *heap,
+					size_t size);
 
 /**
  * ion_heap_freelist_size - returns the size of the freelist in bytes
@@ -316,13 +357,8 @@ void ion_carveout_free(struct ion_heap *heap, ion_phys_addr_t addr,
  * @low_count:		number of lowmem items in the pool
  * @high_items:		list of highmem items
  * @low_items:		list of lowmem items
- * @shrinker:		a shrinker for the items
  * @mutex:		lock protecting this struct and especially the count
  *			item list
- * @alloc:		function to be used to allocate pageory when the pool
- *			is empty
- * @free:		function to be used to free pageory back to the system
- *			when the shrinker fires
  * @gfp_mask:		gfp_mask to use from alloc
  * @order:		order of pages in the pool
  * @list:		plist node for list of pools
@@ -343,10 +379,170 @@ struct ion_page_pool {
 	struct plist_node list;
 };
 
+static const gfp_t high_order_gfp_flags = (GFP_HIGHUSER | __GFP_ZERO | __GFP_NOWARN |
+				     __GFP_NORETRY | __GFP_NO_KSWAPD) & ~__GFP_WAIT;
+static const gfp_t low_order_gfp_flags  = (GFP_HIGHUSER | __GFP_ZERO | __GFP_NOWARN);
+
+static const unsigned int orders[] = {8, 4, 0};
+static const int num_orders = ARRAY_SIZE(orders);
+
+static inline int order_to_index(unsigned int order)
+{
+	int i;
+
+	for (i = 0; i < num_orders; i++)
+		if (order == orders[i])
+			return i;
+	BUG();
+	return -1;
+}
 struct ion_page_pool *ion_page_pool_create(gfp_t gfp_mask, unsigned int order);
 void ion_page_pool_destroy(struct ion_page_pool *);
 void *ion_page_pool_alloc(struct ion_page_pool *);
 void ion_page_pool_free(struct ion_page_pool *, struct page *);
+void ion_page_pool_free_immediate(struct ion_page_pool *, struct page *);
+
+#ifdef CONFIG_ION_POOL_CACHE_POLICY
+static inline void ion_page_pool_alloc_set_cache_policy
+				(struct ion_page_pool *pool,
+				struct page *page){
+	void *va = page_address(page);
+
+	if (va)
+		set_memory_wc((unsigned long)va, 1 << pool->order);
+}
+
+static inline void ion_page_pool_free_set_cache_policy
+				(struct ion_page_pool *pool,
+				struct page *page){
+	void *va = page_address(page);
+
+	if (va)
+		set_memory_wb((unsigned long)va, 1 << pool->order);
+
+}
+#else
+static inline void ion_page_pool_alloc_set_cache_policy
+				(struct ion_page_pool *pool,
+				struct page *page){ }
+
+static inline void ion_page_pool_free_set_cache_policy
+				(struct ion_page_pool *pool,
+				struct page *page){ }
+#endif
+
+#ifdef CONFIG_ION_DMA32_LIMIT_CHECK
+
+#define ION_FLAG_DMA32  (1 << 31)	/* these buffers will be allocated in
+							   DMA32 zone, this is used when some hardware
+							   can only access memory below 4G */
+
+static const gfp_t high_order_dma32_gfp_flags = (GFP_USER | __GFP_ZERO | __GFP_NOWARN |
+				     __GFP_NORETRY | __GFP_NO_KSWAPD | __GFP_DMA32) & ~__GFP_WAIT;
+static const gfp_t low_order_dma32_gfp_flags  = (GFP_USER | __GFP_ZERO | __GFP_NOWARN | __GFP_DMA32);
+
+static inline int ion_get_page_pool_slots_num(void)
+{
+	return num_orders * 2;
+}
+
+static inline struct ion_page_pool *ion_get_page_pool_slot(struct ion_page_pool **pools,
+		struct ion_buffer *buffer, unsigned int order)
+{
+	bool dma32  = !!(buffer->flags & ION_FLAG_DMA32);
+	return pools[num_orders * dma32 + order_to_index(order)];
+}
+
+static inline gfp_t ion_get_gfp_flags(unsigned int order, struct ion_buffer *buffer)
+{
+	gfp_t gfp_flags;
+	bool dma32  = !!(buffer->flags & ION_FLAG_DMA32);
+
+	if (order <= 4 && !dma32)
+		gfp_flags = low_order_gfp_flags;
+	else if (order <= 4 && dma32)
+		gfp_flags = low_order_dma32_gfp_flags;
+	else if (order > 4 && !dma32)
+		gfp_flags = high_order_gfp_flags;
+	else
+		gfp_flags = high_order_dma32_gfp_flags;
+
+	return gfp_flags;
+}
+
+static inline bool _ion_create_system_heap_pools(struct ion_page_pool **pools)
+{
+	int i;
+	for (i = 0; i < num_orders; i++) {
+		struct ion_page_pool *pool;
+		gfp_t gfp_flags1 = low_order_gfp_flags;
+		gfp_t gfp_flags2 = low_order_dma32_gfp_flags;
+
+		if (orders[i] > 4) {
+			gfp_flags1 = high_order_gfp_flags;
+			gfp_flags2 = high_order_dma32_gfp_flags;
+		}
+		pool = ion_page_pool_create(gfp_flags1, orders[i]);
+		if (!pool)
+			return false;
+		pools[i] = pool;
+
+		pool = ion_page_pool_create(gfp_flags2, orders[i]);
+		if (!pool)
+			return false;
+		pools[num_orders + i] = pool;
+	}
+
+	return true;
+}
+
+#else
+static inline int ion_get_page_pool_slots_num(void)
+{
+	return num_orders;
+}
+
+static inline struct ion_page_pool *ion_get_page_pool_slot(struct ion_page_pool **pools,
+		struct ion_buffer *buffer, unsigned int order)
+{
+	(void)buffer;
+	return pools[order_to_index(order)];
+}
+
+static inline gfp_t ion_get_gfp_flags(unsigned int order, struct ion_buffer *buffer)
+{
+	gfp_t gfp_flags;
+	(void)buffer;
+
+	if (order <= 4)
+		gfp_flags = low_order_gfp_flags;
+	else
+		gfp_flags = high_order_gfp_flags;
+
+	return gfp_flags;
+}
+
+static inline bool _ion_create_system_heap_pools(struct ion_page_pool **pools)
+{
+	int i;
+	for (i = 0; i < num_orders; i++) {
+		struct ion_page_pool *pool;
+		gfp_t gfp_flags = low_order_gfp_flags;
+
+		if (orders[i] > 4)
+			gfp_flags = high_order_gfp_flags;
+
+		pool = ion_page_pool_create(gfp_flags, orders[i]);
+		if (!pool)
+			return false;
+
+		pools[i] = pool;
+	}
+
+	return true;
+}
+
+#endif
 
 /** ion_page_pool_shrink - shrinks the size of the memory cached in the pool
  * @pool:		the pool

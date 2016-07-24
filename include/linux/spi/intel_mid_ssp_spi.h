@@ -132,6 +132,7 @@ DEFINE_SSP_REG(GAFR1_U, 0x44);
 #define SSCR0_DataSize(x)  ((x) - 1)    /* Data Size Select [4..16] */
 #define SSCR0_FRF   (0x00000030)     /* FRame Format (mask) */
 #define SSCR0_Motorola        (0x0 << 4)         /* Motorola's SPI mode */
+
 #define SSCR0_ECS   (1 << 6) /* External clock select */
 #define SSCR0_SSE   (1 << 7) /* Synchronous Serial Port Enable */
 

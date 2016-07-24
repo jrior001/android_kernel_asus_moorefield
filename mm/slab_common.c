@@ -55,6 +55,7 @@ static int kmem_cache_sanity_check(struct mem_cgroup *memcg, const char *name,
 			continue;
 		}
 
+#if !defined(CONFIG_SLUB)
 		/*
 		 * For simplicity, we won't check this in the list of memcg
 		 * caches. We have control over memcg naming, and if there
@@ -68,6 +69,7 @@ static int kmem_cache_sanity_check(struct mem_cgroup *memcg, const char *name,
 			s = NULL;
 			return -EINVAL;
 		}
+#endif
 	}
 
 	WARN_ON(strchr(name, ' '));	/* It confuses parsers */
@@ -460,6 +462,18 @@ void __init create_kmalloc_caches(unsigned long flags)
 
 		if (KMALLOC_MIN_SIZE <= 64 && !kmalloc_caches[2] && i == 7)
 			kmalloc_caches[2] = create_kmalloc_cache(NULL, 192, flags);
+
+#ifdef CONFIG_SLUB
+		/*
+		 * kmalloc-16384 and kmalloc-32768 are vulnerable to the fragmentation
+		 * of page allocator so we have to preserve enough free slabs for
+		 * the frequent request from usbnet.
+		 */
+		if (i == kmalloc_index(16 * 1024))
+			kmalloc_caches[i]->min_partial = 64 * 10; /* 10 MB is reserved */
+		else if (i == kmalloc_index(32 * 1024))
+			kmalloc_caches[i]->min_partial = 32 * 20; /* 20 MB is reserved */
+#endif
 	}
 
 	/* Kmalloc array is now usable */

@@ -30,7 +30,8 @@
 #include <media/v4l2-subdev.h>
 #include <media/m10mo_atomisp.h>
 #include <linux/spi/spi.h>
-#include <linux/spi/intel_mid_ssp_spi.h>
+//#include <linux/spi/intel_mid_ssp_spi.h>
+#include <linux/spi/pxa2xx_spi.h>
 #include "platform_camera.h"
 #include "platform_m10mo.h"
 #include <asm/intel_scu_pmic.h>
@@ -321,8 +322,8 @@ static int camera_isp_1p2_en = -1;
         camera_sensor_gpio_free(camera_1p2_en);
         camera_1p2_en = -1;
 
-		gpio_set_value(camera_3p3_en2, 0);
-		camera_sensor_gpio_free(camera_3p3_en2);
+	gpio_set_value(camera_3p3_en2, 0);
+	camera_sensor_gpio_free(camera_3p3_en2);
         camera_3p3_en2 = -1;
 
         camera_sensor_gpio_free(camera_reset);
@@ -400,7 +401,7 @@ static void spi_cs_control(u32 command)
 		return;
 
 	/* CS must be set high during transmission */
-	if (command == CS_ASSERT) {
+	if (command == PXA2XX_CS_ASSERT) {
 		gpio_set_value(cs_chip_select, 1);
 		udelay(10);
 	}
@@ -408,13 +409,25 @@ static void spi_cs_control(u32 command)
 		gpio_set_value(cs_chip_select, 0);
 };
 
-static struct intel_mid_ssp_spi_chip spi_chip = {
+/*static struct intel_mid_ssp_spi_chip spi_chip = {
 	.burst_size	= DFLT_FIFO_BURST_SIZE,
 	.timeout	= DFLT_TIMEOUT_VAL,
 	.dma_enabled	= false,
 	.cs_control	= spi_cs_control,
-};
+};*/
 
+static struct pxa2xx_spi_chip spi_chip = {
+        .tx_threshold = 8,
+        .rx_threshold = 8,
+        .dma_burst_size = 8,
+        .timeout = 235, /* See Intel documentation */
+        .cs_control = spi_cs_control,
+        /*
+        * gpio_cs is a undocumented struct member that needs to be
+        * assigned. (Negative number == don't use GPIO/use SSP)
+        */
+        .gpio_cs = -1,
+};
 static int m10mo_platform_init(void)
 {
 
@@ -491,7 +504,7 @@ static struct m10mo_platform_data m10mo_sensor_platform_data = {
 	.common.get_camera_caps = m10mo_get_camera_caps,
 
 	/* platform data for spi flashing */
-	.spi_pdata.spi_enabled	= false, /* By default SPI is not available */
+	.spi_pdata.spi_enabled	= true, /* By default SPI is not available */
 	.spi_pdata.spi_bus_num	= 6, /* Board specific */
 	.spi_pdata.spi_cs_gpio	= 117, /* Board specific */
 	.spi_pdata.spi_speed_hz = 10000000, /* Board specific */

@@ -187,12 +187,16 @@ void vvx09f006a00_panel_reset(struct intel_dsi_device *dsi)
 		struct drm_i915_private *dev_priv = dev->dev_private;
 
 		/* CABC disable */
-		vlv_gpio_nc_write(dev_priv, 0x4100, 0x2000CC00);
-		vlv_gpio_nc_write(dev_priv, 0x4108, 0x00000004);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_VDDEN_GPIONC_9_PCONF0, 0x2000CC00);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_VDDEN_GPIONC_9_PAD, 0x00000004);
 
 		/* panel enable */
-		vlv_gpio_nc_write(dev_priv, 0x40F0, 0x2000CC00);
-		vlv_gpio_nc_write(dev_priv, 0x40F8, 0x00000005);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_BKLTCTL_GPIONC_11_PCONF0, 0x2000CC00);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_BKLTCTL_GPIONC_11_PAD, 0x00000005);
 	} else
 		intel_mid_pmic_writeb(0x52, 0x01);
 	usleep_range(85000, 90000);
@@ -207,8 +211,10 @@ void  vvx09f006a00_disable_panel_power(struct intel_dsi_device *dsi)
 		struct drm_i915_private *dev_priv = dev->dev_private;
 
 		/* panel disable */
-		vlv_gpio_nc_write(dev_priv, 0x40F0, 0x2000CC00);
-		vlv_gpio_nc_write(dev_priv, 0x40F8, 0x00000004);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_BKLTCTL_GPIONC_11_PCONF0, 0x2000CC00);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_BKLTCTL_GPIONC_11_PAD, 0x00000004);
 	} else
 		intel_mid_pmic_writeb(0x52, 0x00);
 	msleep(20);

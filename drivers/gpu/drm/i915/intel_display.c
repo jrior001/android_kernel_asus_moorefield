@@ -44,8 +44,6 @@
 #include <drm/drm_dp_helper.h>
 #include <drm/drm_crtc_helper.h>
 #include <linux/dma_remapping.h>
-#include <linux/regulator/consumer.h>
-#include <asm/spid.h>
 #include <linux/shmem_fs.h>
 
 #define MAX_BRIGHTNESS	255
@@ -385,15 +383,14 @@ static const intel_limit_t intel_limits_vlv_dp = {
 
 static bool check_live_status(struct drm_i915_private *dev_priv)
 {
-	DRM_DEBUG_PM("Reading: HDMIB_HOTPLUG_LIVE_STATUS = %x\n", I915_READ(PORT_HOTPLUG_STAT));
-
-	if (((I915_READ(PORT_HOTPLUG_STAT) & HDMIB_HOTPLUG_LIVE_STATUS) == 0) &&
-		((I915_READ(PORT_HOTPLUG_STAT) & HDMIC_HOTPLUG_LIVE_STATUS) == 0) &&
-		((I915_READ(PORT_HOTPLUG_STAT) & HDMID_HOTPLUG_LIVE_STATUS) == 0))
-		return false;
-	else
-		return true;
+	/* Since certain panels are causing delay in updating the live_status register
+	 * and increasing delay doesnot meet the KPI, now live_status is determined whether
+	 * the device is available or not
+	 */
+	DRM_DEBUG_DRIVER("HDMI live_status is returning is %d\n", !dev_priv->unplug);
+	return !dev_priv->unplug;
 }
+
 
 void i915_update_plane_stat(struct drm_i915_private *dev_priv, int pipe,
 		int plane, bool enable, int planes)
@@ -2305,9 +2302,6 @@ static int i9xx_update_plane(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	intel_fb = to_intel_framebuffer(fb);
 	obj = intel_fb->obj;
 
-	if (!dev_priv->atomic_update)
-		intel_update_watermarks(dev);
-
 	reg = DSPCNTR(plane);
 	/*
 	 * In case of atomic update, primary enable/disable is already cached as
@@ -2324,40 +2318,44 @@ static int i9xx_update_plane(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	case DRM_FORMAT_C8:
 		dspcntr |= DISPPLANE_8BPP;
 		break;
-	case DRM_FORMAT_XRGB1555:
-	case DRM_FORMAT_ARGB1555:
-		if (intel_crtc->primary_alpha)
-			dspcntr |= DISPPLANE_BGRA555;
-		else
-			dspcntr |= DISPPLANE_BGRX555;
-		break;
 	case DRM_FORMAT_RGB565:
 		dspcntr |= DISPPLANE_BGRX565;
 		break;
 	case DRM_FORMAT_XRGB8888:
-	case DRM_FORMAT_ARGB8888:
-		if (intel_crtc->primary_alpha)
-			dspcntr |= DISPPLANE_BGRA888;
-		else
-			dspcntr |= DISPPLANE_BGRX888;
+		dspcntr |= DISPPLANE_BGRX888;
 		break;
-	case DRM_FORMAT_XBGR8888:
-	case DRM_FORMAT_ABGR8888:
-		if (intel_crtc->primary_alpha)
-			dspcntr |= DISPPLANE_RGBA888;
+	case DRM_FORMAT_ARGB8888:
+		if (!intel_crtc->alpha)
+			dspcntr |= DISPPLANE_BGRX888;
 		else
+			dspcntr |= DISPPLANE_BGRA888;
+	break;
+	case DRM_FORMAT_XBGR8888:
+		dspcntr |= DISPPLANE_RGBX888;
+		break;
+	case DRM_FORMAT_ABGR8888:
+		if (!intel_crtc->alpha)
 			dspcntr |= DISPPLANE_RGBX888;
+		else
+			dspcntr |= DISPPLANE_RGBA888;
 		break;
 	case DRM_FORMAT_XRGB2101010:
-	case DRM_FORMAT_ARGB2101010:
 		dspcntr |= DISPPLANE_BGRX101010;
 		break;
-	case DRM_FORMAT_XBGR2101010:
-	case DRM_FORMAT_ABGR2101010:
-		if (intel_crtc->primary_alpha)
-			dspcntr |= DISPPLANE_RGBA101010;
+	case DRM_FORMAT_ARGB2101010:
+		if (!intel_crtc->alpha)
+			dspcntr |= DISPPLANE_BGRX101010;
 		else
+			dspcntr |= DISPPLANE_BGRA101010;
+		break;
+	case DRM_FORMAT_XBGR2101010:
+		dspcntr |= DISPPLANE_RGBX101010;
+		break;
+	case DRM_FORMAT_ABGR2101010:
+		if (!intel_crtc->alpha)
 			dspcntr |= DISPPLANE_RGBX101010;
+		else
+			dspcntr |= DISPPLANE_RGBA101010;
 		break;
 	default:
 		BUG();
@@ -2368,22 +2366,10 @@ static int i9xx_update_plane(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 		rotate = true;
 
 	if (INTEL_INFO(dev)->gen >= 4) {
-		if (obj->tiling_mode != I915_TILING_NONE) {
+		if (obj->tiling_mode != I915_TILING_NONE)
 			dspcntr |= DISPPLANE_TILED;
-			dev_priv->is_tiled = true;
-		} else {
+		else
 			dspcntr &= ~DISPPLANE_TILED;
-			dev_priv->is_tiled = false;
-			/*
-			 * TODO:In linear mode disable maxfifo, hack to the
-			 * FADiag app flicker issue.
-			 */
-			if (dev_priv->maxfifo_enabled && !dev_priv->atomic_update) {
-				I915_WRITE(FW_BLC_SELF_VLV, ~FW_CSPWRDWNEN);
-				dev_priv->maxfifo_enabled = false;
-				intel_wait_for_vblank(dev, pipe);
-			}
-		}
 	}
 
 	if (IS_G4X(dev))
@@ -2481,15 +2467,15 @@ static int i9xx_update_plane(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 				     i915_gem_obj_ggtt_offset(obj) + intel_crtc->dspaddr_offset);
 		if (rotate) {
 			intel_crtc->reg.tileoff =
-					(((y + fb->height - 1) << 16) |
-					(x + fb->width - 1));
+					(((y + mode->vdisplay - 1) << 16) |
+					(x + mode->hdisplay - 1));
 			/* Linear Offset should be the difference b/w the last pixel of
 			 * the last line of the display data in its unrotated orientation
 			 * and the display surface address.
 			 */
 			intel_crtc->reg.linoff = linear_offset +
-					(fb->height - 1) * fb->pitches[0] +
-					(fb->width - 1) * pixel_size;
+					(mode->vdisplay - 1) * fb->pitches[0] +
+					(mode->hdisplay - 1) * pixel_size;
 			if (!dev_priv->atomic_update) {
 				I915_WRITE(DSPTILEOFF(plane),
 						intel_crtc->reg.tileoff);
@@ -2511,8 +2497,6 @@ static int i9xx_update_plane(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 		I915_WRITE(DSPADDR(plane), i915_gem_obj_ggtt_offset(obj) + linear_offset);
 	POSTING_READ(reg);
 
-	if (!dev_priv->atomic_update)
-		intel_update_watermarks(dev);
 	return 0;
 }
 
@@ -4188,6 +4172,7 @@ static void i9xx_pfit_enable(struct intel_crtc *crtc)
 
 static void vlv_update_watermarks(struct drm_i915_private *dev_priv)
 {
+	I915_WRITE(DSPARB, DSPARB_VLV_DEFAULT);
 	I915_WRITE(DSPFW1,
 		   (DSPFW_SR_VAL << DSPFW_SR_SHIFT) |
 		   (DSPFW_CURSORB_VAL << DSPFW_CURSORB_SHIFT) |
@@ -4213,7 +4198,6 @@ static void vlv_update_watermarks(struct drm_i915_private *dev_priv)
 			(DSPFW7_SPRITED_VAL << DSPFW7_SPRITED_SHIFT) |
 			(DSPFW7_SPRITEC1_VAL << DSPFW7_SPRITEC1_SHIFT) |
 			DSPFW7_SPRITEC_VAL);
-	I915_WRITE(DSPARB, DSPARB_VLV_DEFAULT);
 }
 
 static void valleyview_crtc_enable(struct drm_crtc *crtc)
@@ -4236,10 +4220,7 @@ static void valleyview_crtc_enable(struct drm_crtc *crtc)
 	intel_crtc->active = true;
 	if (dev_priv->s0ixstat == true)
 		intel_crtc->s0ix_suspend_state = false;
-	if (!dev_priv->atomic_update)
-		intel_update_watermarks(dev);
-	else
-		vlv_update_watermarks(dev_priv);
+	vlv_update_watermarks(dev_priv);
 
 	for_each_encoder_on_crtc(dev, crtc, encoder)
 		if (encoder->pre_pll_enable)
@@ -4329,8 +4310,6 @@ static void i9xx_crtc_enable(struct drm_crtc *crtc)
 
 	intel_update_fbc(dev);
 	intel_update_drrs(dev);
-	if (!dev_priv->atomic_update)
-		intel_update_watermarks(dev);
 
 	for_each_encoder_on_crtc(dev, crtc, encoder)
 		encoder->enable(encoder);
@@ -4430,8 +4409,6 @@ static void i9xx_crtc_disable(struct drm_crtc *crtc)
 		intel_crtc->s0ix_suspend_state = true;
 	intel_update_fbc(dev);
 	intel_update_drrs(dev);
-	if (!dev_priv->atomic_update)
-		intel_update_watermarks(dev);
 
 	if ((pipe == 0) && (dev_priv->is_mipi || dev_priv->is_hdmi)) {
 		/* Ensure that port, plane, pipe, pf, pll are all disabled
@@ -5701,17 +5678,6 @@ void intel_iosf_rw(struct drm_i915_private *dev_priv,
 	return;
 }
 
-bool get_regulator(struct drm_device *dev,
-	struct drm_i915_private *dev_priv)
-{
-	dev_priv->v3p3sx_reg = regulator_get(dev->dev, FFRD8_PR1_DISP_BKLGHT_REGULATOR);
-	if (IS_ERR(dev_priv->v3p3sx_reg)) {
-		DRM_ERROR("FFRD8_PR1_DISP_BKLGHT_REGULATOR: Regulator_get failed\n");
-		return false;
-	}
-	return true;
-}
-
 static int i9xx_crtc_mode_set(struct drm_crtc *crtc,
 			      int x, int y,
 			      struct drm_framebuffer *fb)
@@ -5729,8 +5695,7 @@ static int i9xx_crtc_mode_set(struct drm_crtc *crtc,
 	bool is_lvds = false, is_dsi = false;
 	struct intel_encoder *encoder;
 	const intel_limit_t *limit;
-	int ret, rgrt;
-	static bool getregulator = true;
+	int ret;
 
 	for_each_encoder_on_crtc(dev, crtc, encoder) {
 		switch (encoder->type) {
@@ -5829,8 +5794,6 @@ static int i9xx_crtc_mode_set(struct drm_crtc *crtc,
 
 	ret = intel_pipe_set_base(crtc, x, y, fb);
 
-	if (!dev_priv->atomic_update)
-		intel_update_watermarks(dev);
 	/* Added for HDMI Audio */
 	if (IS_VALLEYVIEW(dev) && intel_pipe_has_type(crtc,
 		INTEL_OUTPUT_HDMI)) {
@@ -5839,23 +5802,6 @@ static int i9xx_crtc_mode_set(struct drm_crtc *crtc,
 			HAD_EVENT_MODE_CHANGING);
 	}
 
-	if (spid.hardware_id == BYT_TABLET_BLK_8PR1) {
-		/* Get the regulator once */
-		if (getregulator) {
-			getregulator = false;
-			rgrt = get_regulator(dev, dev_priv);
-			if (!rgrt) {
-				DRM_ERROR("WARN! 3P3SX Regulator get failed\n");
-				dev_priv->v3p3sx_reg = NULL;
-				goto out;
-			}
-			/* FIXME:Remove this once regulator framework does default enable */
-			rgrt = regulator_enable(dev_priv->v3p3sx_reg);
-			if (rgrt)
-				DRM_ERROR("WARN! Failed to turn ON 3P3SX\n");
-		}
-	}
-out:
 	return ret;
 }
 
@@ -8606,8 +8552,6 @@ void intel_unpin_work_fn(struct work_struct *__work)
 	 * to push work by another x seconds
 	 */
 	intel_update_drrs(dev);
-	if (!dev_priv->atomic_update)
-		intel_update_watermarks(dev);
 
 	mutex_unlock(&dev->struct_mutex);
 
@@ -8927,6 +8871,41 @@ static void intel_gen7_queue_mmio_flip_work(struct work_struct *__work)
 	i9xx_update_plane(crtc, crtc->fb, 0, 0);
 }
 
+static void intel_gen7_queue_mmio_flip_work_sync(struct i915_flip_work *flipwork)
+{
+	int ret = 0;
+	unsigned int reset_counter;
+	struct drm_crtc *crtc = flipwork->flipdata.crtc;
+	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
+	struct drm_device *dev = crtc->dev;
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct intel_ring_buffer *ring =
+		&dev_priv->ring[flipwork->flipdata.ring_id];
+
+	if (dev_priv->ums.mm_suspended || (ring->obj == NULL)) {
+		DRM_ERROR("flip attempted while the ring is not ready\n");
+		return;
+	}
+
+	/* Wait is needed only for nonZero Seqnos, as zero Seqno indicates
+	that either the rendering on the object (through GPU) is already
+	completed or not intiated at all */
+	if (flipwork->flipdata.seqno > 0) {
+		reset_counter =
+			atomic_read(&dev_priv->gpu_error.reset_counter);
+		/* sleep wait until the seqno has passed */
+		ret = __wait_seqno(ring, flipwork->flipdata.seqno,
+			reset_counter, true, NULL);
+		if (ret)
+			DRM_ERROR("wait_seqno failed on seqno 0x%x(%d)\n",
+			flipwork->flipdata.seqno,
+			flipwork->flipdata.ring_id);
+	}
+
+	intel_mark_page_flip_active(intel_crtc);
+	i9xx_update_plane(crtc, crtc->fb, 0, 0);
+}
+
 /* Using MMIO based flips starting from VLV, for Media power well
  * residency optimization. The other alternative of having Render
  * ring based flip calls is not being used, as the performance
@@ -8992,13 +8971,18 @@ static int intel_gen7_queue_mmio_flip(struct drm_device *dev,
 		}
 	}
 
-	INIT_WORK(&work->work, intel_gen7_queue_mmio_flip_work);
+	if (dev_priv->atomic_update)
+		intel_gen7_queue_mmio_flip_work_sync(work);
+	else {
+		INIT_WORK(&work->work, intel_gen7_queue_mmio_flip_work);
 
-	/* Queue the MMIO flip work in our private workqueue,
-	 * from which the work items will be dequeued sequentially
-	 * one by one
-	 */
-	queue_work(dev_priv->flipwq, &work->work);
+		/*
+		 * Queue the MMIO flip work in our private workqueue,
+		 * from which the work items will be dequeued sequentially
+		 * one by one
+		 */
+		queue_work(dev_priv->flipwq, &work->work);
+	}
 
 	return 0;
 
@@ -9228,7 +9212,7 @@ static void i915_commit(struct drm_i915_private *dev_priv,
 	struct drm_crtc *crtc = dev_priv->pipe_to_crtc_mapping[pipe];
 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
 	struct intel_disp_reg *reg;
-	int plane = 0, val = 0;
+	int plane = 0;
 
 	if (type == SPRITE_PLANE) {
 		reg = &intel_plane->reg;
@@ -9237,6 +9221,7 @@ static void i915_commit(struct drm_i915_private *dev_priv,
 		reg = &intel_crtc->reg;
 		plane = intel_crtc->plane;
 	}
+	/* Enable Primary plane */
 	if (type == SPRITE_PLANE) {
 		if (intel_plane->pri_update && (reg->dspcntr & (1 << 31))) {
 			I915_WRITE(DSPCNTR(pipe), reg->dspcntr);
@@ -9267,19 +9252,7 @@ static void i915_commit(struct drm_i915_private *dev_priv,
 		I915_WRITE(SPLINOFF(pipe, plane), reg->linoff);
 		I915_WRITE(SPSIZE(pipe, plane),	reg->size);
 		I915_WRITE_BITS(SPCNTR(pipe, plane), reg->cntr, 0xBFFFFFF8);
-		I915_MODIFY_DISPBASE(SPSURF(pipe, plane), reg->surf);
-		if (intel_plane->flags & DRM_MODE_SET_DISPLAY_PLANE_UPDATE_RRB2) {
-			if (intel_plane->rrb2_enable) {
-				val = I915_READ(SPSURF(pipe, plane));
-				val |= PLANE_RESERVED_REG_BIT_2_ENABLE;
-				I915_WRITE(SPSURF(pipe, plane), val);
-			} else {
-				val = I915_READ(SPSURF(pipe, plane));
-				val &= ~PLANE_RESERVED_REG_BIT_2_ENABLE;
-				I915_WRITE(SPSURF(pipe, plane), val);
-			}
-			intel_plane->flags &= ~DRM_MODE_SET_DISPLAY_PLANE_UPDATE_RRB2;
-		}
+		I915_WRITE(SPSURF(pipe, plane), reg->surf);
 		if (intel_plane->pri_update) {
 			I915_WRITE(DSPCNTR(pipe), reg->dspcntr);
 			I915_MODIFY_DISPBASE(DSPSURF(pipe), I915_READ(DSPSURF(pipe)));
@@ -9318,14 +9291,13 @@ static void intel_pipe_vblank_evade(struct drm_crtc *crtc)
 	/* FIXME needs to be calibrated sensibly */
 	u32 min = crtc->hwmode.crtc_vdisplay - usecs_to_scanlines(crtc, 50);
 	u32 max = crtc->hwmode.crtc_vdisplay - 1;
-	long timeout = msecs_to_jiffies(3);
 	u32 val;
 
 	local_irq_disable();
 	val = I915_READ(PIPEDSL(pipe));
 	local_irq_enable();
 
-	while (val >= min && val <= max && timeout > 0) {
+	while (val >= min && val <= max) {
 
 		intel_wait_for_vblank(dev_priv->dev, intel_crtc->pipe);
 		local_irq_disable();
@@ -9340,7 +9312,7 @@ static void intel_pipe_vblank_evade(struct drm_crtc *crtc)
 			 val, crtc->hwmode.crtc_vdisplay);
 }
 
-static int intel_crtc_set_display(struct drm_crtc *crtc,
+static int intel_crtc_flip_prepare(struct drm_crtc *crtc,
 				struct drm_mode_set_display *disp,
 				struct drm_file *file_priv)
 {
@@ -9348,7 +9320,6 @@ static int intel_crtc_set_display(struct drm_crtc *crtc,
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct drm_i915_plane_180_rotation *rotate;
 	struct drm_i915_set_plane_zorder *zorder;
-	struct drm_i915_set_plane_alpha *alpha;
 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
 	struct drm_mode_crtc_page_flip *flip;
 	struct drm_mode_set_plane *plane;
@@ -9361,18 +9332,11 @@ static int intel_crtc_set_display(struct drm_crtc *crtc,
 	disp->errored = 0;
 	disp->presented = 0;
 
-	/* If HWC version and size of the struct doesnt match, return NULL */
-	if (!(disp->version == DRM_MODE_SET_DISPLAY_VERSION && disp->size ==
-			sizeof(struct drm_mode_set_display))) {
-		DRM_ERROR("HWC version or struct size mismatch");
-		return -EINVAL;
-	}
-	dev_priv->atomic_update = true;
 	/*
 	 * userspace app will not call this function again until the
 	 * page_flip done event is received so no locking is required here
 	 */
-	/* Disable maxfifo is multiple planes are enabled */
+	/* Disable maxfifo if multiple planes are enabled */
 	for (i = disp->num_planes-1; i >= 0; i--) {
 		if (disp->plane[i].update_flag &
 				DRM_MODE_SET_DISPLAY_PLANE_UPDATE_PRESENT)
@@ -9491,6 +9455,10 @@ static int intel_crtc_set_display(struct drm_crtc *crtc,
 				flip->flags = disp->plane[i].flags;
 				flip->reserved = 0;
 				flip->user_data = disp->plane[i].user_data;
+				/* pass alpha information */
+				if (disp->plane[i].update_flag &
+						DRM_MODE_SET_DISPLAY_PLANE_UPDATE_ALPHA)
+					intel_crtc->alpha = disp->plane[i].alpha;
 				tmp_ret = drm_mode_page_flip_ioctl(dev, flip, file_priv);
 				if (tmp_ret) {
 					DRM_ERROR("drm_mode_page_flio_ioctl failed\n");
@@ -9498,7 +9466,8 @@ static int intel_crtc_set_display(struct drm_crtc *crtc,
 						flip->crtc_id, flip->fb_id, flip->flags,
 						flip->user_data, tmp_ret);
 					disp->errored |= (1 << i);
-					ret = -EINVAL;
+					kfree(flip);
+					return tmp_ret;
 				} else {
 					disp->presented |= (1 << i);
 				}
@@ -9538,17 +9507,18 @@ static int intel_crtc_set_display(struct drm_crtc *crtc,
 				intel_plane = to_intel_plane(drm_plane);
 				/* pass rrb2 information */
 				if (disp->plane[i].update_flag &
-						DRM_MODE_SET_DISPLAY_PLANE_UPDATE_RRB2) {
-					intel_plane->flags |=
-						DRM_MODE_SET_DISPLAY_PLANE_UPDATE_RRB2;
+						DRM_MODE_SET_DISPLAY_PLANE_UPDATE_RRB2)
 					intel_plane->rrb2_enable =
-						disp->plane[i].rrb2_enable;
-				}
+								disp->plane[i].rrb2_enable;
+				/* pass alpha information */
+				if (disp->plane[i].update_flag &
+						DRM_MODE_SET_DISPLAY_PLANE_UPDATE_ALPHA)
+					intel_plane->alpha = disp->plane[i].alpha;
 
 				tmp_ret = drm_mode_setplane(dev, plane, file_priv);
 				if (tmp_ret) {
-					DRM_ERROR("drm_mode_setplane failed\n");
-					DRM_ERROR("::plane_id %u crtc_id %u fb %u flags 0x%x {%d,%d,%ux%u %d,%d,%ux%u} ud %llu ret %d\n",
+					DRM_ERROR_RATELIMITED("drm_mode_setplane failed\n");
+					DRM_ERROR_RATELIMITED("::plane_id %u crtc_id %u fb %u flags 0x%x {%d,%d,%ux%u %d,%d,%ux%u} ud %llu ret %d\n",
 							plane->plane_id, plane->crtc_id,
 							plane->fb_id, plane->flags,
 							plane->crtc_x, plane->crtc_y,
@@ -9556,8 +9526,9 @@ static int intel_crtc_set_display(struct drm_crtc *crtc,
 							plane->src_x, plane->src_y,
 							plane->src_h, plane->src_w,
 							plane->user_data, tmp_ret);
-					ret = -EINVAL;
 					disp->errored |= (1<<i);
+					kfree(plane);
+					return tmp_ret;
 				} else {
 					disp->presented |= (1<<i);
 				}
@@ -9565,6 +9536,85 @@ static int intel_crtc_set_display(struct drm_crtc *crtc,
 			}
 		}
 	}
+	return ret;
+}
+
+static void intel_crtc_flip_commit(struct drm_crtc *crtc,
+				struct drm_mode_set_display *disp,
+				struct drm_file *file_priv)
+{
+	struct drm_device *dev = crtc->dev;
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
+	struct drm_mode_object *obj;
+	struct drm_plane *drm_plane;
+	struct intel_plane *intel_plane;
+	int i;
+
+	/* Program the z-order */
+	if (disp->update_flag & DRM_MODE_SET_DISPLAY_UPDATE_ZORDER) {
+		I915_WRITE_BITS(SPCNTR(intel_crtc->pipe, 0),
+				intel_crtc->reg.spacntr, 0x00000007);
+		I915_WRITE(SPSURF(intel_crtc->pipe, 0),
+				I915_READ(SPSURF(intel_crtc->pipe, 0)));
+		I915_WRITE_BITS(SPCNTR(intel_crtc->pipe, 1),
+				intel_crtc->reg.spbcntr, 0x00000007);
+		I915_WRITE(SPSURF(intel_crtc->pipe, 1),
+				I915_READ(SPSURF(intel_crtc->pipe, 1)));
+	}
+	/* Write to all display registers */
+	for (i = disp->num_planes-1; i >= 0; i--) {
+		if (!(disp->update_flag & DRM_MODE_SET_DISPLAY_UPDATE_PLANE(i)))
+			continue;
+		if (disp->plane[i].update_flag &
+				DRM_MODE_SET_DISPLAY_PLANE_UPDATE_PRESENT) {
+			if (disp->plane[i].obj_type == DRM_MODE_OBJECT_CRTC) {
+				i915_commit(dev_priv, NULL, intel_crtc->pipe,
+						DISPLAY_PLANE);
+			} else {
+				obj = drm_mode_object_find(dev, disp->plane[i].obj_id,
+						   DRM_MODE_OBJECT_PLANE);
+				drm_plane = obj_to_plane(obj);
+				intel_plane = to_intel_plane(drm_plane);
+				i915_commit(dev_priv, (void *)intel_plane,
+						intel_crtc->pipe, SPRITE_PLANE);
+			}
+		}
+	}
+	/* Enable maxffo if required */
+	if (is_maxfifo_needed(dev_priv) && !dev_priv->maxfifo_enabled) {
+		I915_WRITE(FW_BLC_SELF_VLV, FW_CSPWRDWNEN);
+		dev_priv->maxfifo_enabled = true;
+	}
+}
+
+static int intel_crtc_set_display(struct drm_crtc *crtc,
+				struct drm_mode_set_display *disp,
+				struct drm_file *file_priv)
+{
+	struct drm_device *dev = crtc->dev;
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
+	int ret = 0;
+
+	disp->errored = 0;
+	disp->presented = 0;
+
+	/* If HWC version and size of the struct doesnt match, return NULL */
+	if (!(disp->version == DRM_MODE_SET_DISPLAY_VERSION && disp->size ==
+			sizeof(struct drm_mode_set_display))) {
+		DRM_ERROR("HWC version or struct size mismatch");
+		return -EINVAL;
+	}
+	dev_priv->atomic_update = true;
+
+	/* Prepare or calculate plane properties for flip */
+	ret = intel_crtc_flip_prepare(crtc, disp, file_priv);
+	if (ret) {
+		DRM_ERROR_RATELIMITED("failed to validate or calculate plane data\n");
+		return ret;
+	}
+
 	/* Check if we need to a vblank, if so wait for vblank */
 	if (dev_priv->wait_vbl) {
 		if (dev_priv->vblcount ==
@@ -9575,63 +9625,10 @@ static int intel_crtc_set_display(struct drm_crtc *crtc,
 	}
 	/* make sure to start from a fresh vsync, it we are close to vblank */
 	intel_pipe_vblank_evade(crtc);
-	/* Program the z-order */
-	if (disp->update_flag & DRM_MODE_SET_DISPLAY_UPDATE_ZORDER) {
-		I915_WRITE_BITS(SPCNTR(intel_crtc->pipe, 0),
-				intel_crtc->reg.spacntr, 0x00000007);
-		I915_WRITE_BITS(SPCNTR(intel_crtc->pipe, 1),
-				intel_crtc->reg.spbcntr, 0x00000007);
-	}
-	/* Write to all display registers */
-	for (i = disp->num_planes-1; i >= 0; i--) {
-		int plane_id = disp->plane[i].obj_id - 2;
-		if (!(disp->update_flag & DRM_MODE_SET_DISPLAY_UPDATE_PLANE(i)))
-			continue;
-		if (disp->plane[i].update_flag &
-				DRM_MODE_SET_DISPLAY_PLANE_UPDATE_ALPHA) {
-			alpha = kzalloc(sizeof(struct drm_i915_set_plane_alpha),
-					GFP_KERNEL);
-			if (!alpha) {
-				DRM_ERROR("Failed to alloc memory-set alpha\n");
-				disp->errored |= (1 << i);
-				ret = -ENOMEM;
-			} else {
-				alpha->alpha = disp->plane[i].alpha;
-				alpha->plane = plane_id;
-				tmp_ret = i915_set_plane_alpha(dev, (void *)alpha, NULL);
-				if (tmp_ret) {
-					DRM_ERROR("i915_set_plane_alpha failed\n");
-					DRM_ERROR("::plane %u(obj id %u)alpha %u ret %d SKIPPED\n",
-						alpha->plane,
-						disp->plane[i].obj_id,
-						alpha->alpha, tmp_ret);
-					ret = -EINVAL;
-					disp->errored |= (1 << i);
-				}
-				kfree(alpha);
-			}
-		}
-		if (disp->plane[i].update_flag &
-				DRM_MODE_SET_DISPLAY_PLANE_UPDATE_PRESENT) {
-			if (disp->plane[i].obj_type == DRM_MODE_OBJECT_CRTC) {
-				i915_commit(dev_priv, NULL, intel_crtc->pipe,
-						DISPLAY_PLANE);
-			} else {
-				obj = drm_mode_object_find(dev, disp->plane[i].obj_id,
-						   DRM_MODE_OBJECT_PLANE);
-				if (!obj)
-					return -ENOENT;
-				drm_plane = obj_to_plane(obj);
-				intel_plane = to_intel_plane(drm_plane);
-				i915_commit(dev_priv, (void *)intel_plane,
-						intel_crtc->pipe, SPRITE_PLANE);
-			}
-		}
-	}
-	if (is_maxfifo_needed(dev_priv) && !dev_priv->maxfifo_enabled) {
-		I915_WRITE(FW_BLC_SELF_VLV, FW_CSPWRDWNEN);
-		dev_priv->maxfifo_enabled = true;
-	}
+
+	/* flip: write to the plane registers */
+	intel_crtc_flip_commit(crtc, disp, file_priv);
+
 	dev_priv->atomic_update = false;
 	return ret;
 }
@@ -11093,14 +11090,6 @@ ssize_t display_runtime_suspend(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct drm_crtc *crtc;
-	int rgrt;
-
-	if (spid.hardware_id == BYT_TABLET_BLK_8PR1)
-		if (dev_priv->v3p3sx_reg) {
-			rgrt = regulator_disable(dev_priv->v3p3sx_reg);
-			if (rgrt)
-				DRM_ERROR("Failed to turn OFF 3P3SX\n");
-		}
 
 	dev_priv->is_suspending = true;
 
@@ -11157,19 +11146,12 @@ extern void intel_resume_hotplug(struct drm_device *dev);
 ssize_t display_runtime_resume(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	int rgrt;
 
 	i915_rpm_get_disp(dev);
 
 	dev_priv->s0ixstat = true;
 	dev_priv->late_resume = true;
 
-	if (spid.hardware_id == BYT_TABLET_BLK_8PR1)
-		if (dev_priv->v3p3sx_reg) {
-			rgrt = regulator_enable(dev_priv->v3p3sx_reg);
-			if (rgrt)
-				DRM_ERROR("Failed to turn ON 3P3SX\n");
-		}
 	/*
 	 * DO NOT Move it from here
 	 * HOTPLUG_EN needs to be enabled for reading LIVE STATUS
@@ -11259,14 +11241,10 @@ static void intel_crtc_init(struct drm_device *dev, int pipe)
 	drm_crtc_helper_add(&intel_crtc->base, &intel_helper_funcs);
 	intel_crtc->sprite_unpin_work = NULL;
 
-	intel_crtc->primary_alpha = false;
-	intel_crtc->sprite0_alpha = true;
-	intel_crtc->sprite1_alpha = true;
-
 	/* Disable both bend spread initially */
 	dev_priv->clockspread = false;
 	dev_priv->clockbend = false;
-	dev_priv->unplug = false;
+	dev_priv->unplug = true;
 	dev_priv->audio_suspended = true;
 	valleyview_program_clock_bending(
 			dev_priv, &clockbend);

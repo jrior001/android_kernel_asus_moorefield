@@ -94,12 +94,16 @@ static const struct file_operations sd_power_proc_fops = {
 	.read = sd_power_proc_read,
 	.write = sd_power_proc_write,
 };
+
+#ifdef CONFIG_ZS550ML
+extern unsigned char gpio_SD_3V3_EN;
+#endif
 //<ASUS_BSP->
 
 extern int intel_scu_ipc_ioread8(u16 addr, u8 *data);
 extern int intel_scu_ipc_iowrite8(u16 addr, u8 data);
 extern int sd_power_off;
-
+bool sd_retry_detect = 0;
 /*
  * Internal function. Schedule delayed work in the MMC work queue.
  */
@@ -404,8 +408,13 @@ EXPORT_SYMBOL(mmc_start_bkops);
  */
 static void mmc_wait_data_done(struct mmc_request *mrq)
 {
-	mrq->host->context_info.is_done_rcv = true;
-	wake_up_interruptible(&mrq->host->context_info.wait);
+	unsigned long flags;
+	struct mmc_context_info *context_info = &mrq->host->context_info;
+
+	spin_lock_irqsave(&context_info->lock, flags);
+	context_info->is_done_rcv = true;
+	wake_up_interruptible(&context_info->wait);
+	spin_unlock_irqrestore(&context_info->lock, flags);
 }
 
 static void mmc_wait_done(struct mmc_request *mrq)
@@ -466,6 +475,7 @@ static int mmc_wait_for_data_req_done(struct mmc_host *host,
 	struct mmc_command *cmd;
 	struct mmc_context_info *context_info = &host->context_info;
 	int err;
+	bool is_done_rcv = false;
 	unsigned long flags;
 
 	while (1) {
@@ -474,8 +484,9 @@ static int mmc_wait_for_data_req_done(struct mmc_host *host,
 				 context_info->is_new_req));
 		spin_lock_irqsave(&context_info->lock, flags);
 		context_info->is_waiting_last_req = false;
+		is_done_rcv = context_info->is_done_rcv;
 		spin_unlock_irqrestore(&context_info->lock, flags);
-		if (context_info->is_done_rcv) {
+		if (is_done_rcv) {
 			context_info->is_done_rcv = false;
 			context_info->is_new_req = false;
 			cmd = mrq->cmd;
@@ -1039,7 +1050,7 @@ EXPORT_SYMBOL(mmc_release_host);
  * Internal function that does the actual ios call to the host driver,
  * optionally printing some debug output.
  */
-static inline void mmc_set_ios(struct mmc_host *host)
+void mmc_set_ios(struct mmc_host *host)
 {
 	struct mmc_ios *ios = &host->ios;
 
@@ -1053,6 +1064,7 @@ static inline void mmc_set_ios(struct mmc_host *host)
 		mmc_set_ungated(host);
 	host->ops->set_ios(host, ios);
 }
+EXPORT_SYMBLO(mmc_set_ios);
 
 /*
  * Control chip select pin on a host.
@@ -1561,9 +1573,13 @@ void mmc_power_up(struct mmc_host *host)
 
 	//<ASUS_BSP+>
 	if ((strcmp(mmc_hostname(host), "mmc1") == 0) && (gpio_get_value(77) == 0)) {   //SDIO_CD# is low
+#ifdef CONFIG_ZS550ML
+		gpio_direction_output(gpio_SD_3V3_EN, 1);      //GPIO(146) Enable
+#else
 		intel_scu_ipc_ioread8(0xAF, &value);
 		value |= 0x02;                          //VSWITCHEN Enable
 		intel_scu_ipc_iowrite8(0xAF, value);
+#endif
 		printk("%s: Set V_3P30_SW to Enable\n", mmc_hostname(host));
 	}
 	//<ASUS_BSP->
@@ -1826,8 +1842,8 @@ void mmc_detect_change(struct mmc_host *host, unsigned long delay)
 #endif
 	host->detect_change = 1;
 	if ((strcmp(mmc_hostname(host), "mmc1") == 0))
-		pr_info("%s: mmc_detect_change, SD card %s\n",
-			mmc_hostname(host), gpio_get_value(77) ? "removed" : "inserted");
+		pr_info("%s: mmc_detect_change, SD card is %s\n",
+			mmc_hostname(host), gpio_get_value(77) ? "non-present" : "present");
 			// gpio-77 : SD_CD
 	wake_lock(&host->detect_wake_lock);
 	mmc_schedule_delayed_work(&host->detect, delay);
@@ -2612,15 +2628,27 @@ void mmc_rescan(struct work_struct *work)
 		if (i == (ARRAY_SIZE(freqs) - 1))
 		{
 			if ((strcmp(mmc_hostname(host), "mmc1") == 0) /*&& (gpio_get_value(77) != 0)*/) {   //SDIO_CD# is high
+#ifdef CONFIG_ZS550ML
+				gpio_direction_output(gpio_SD_3V3_EN, 0);      //GPIO(146) Disable
+#else
 				intel_scu_ipc_ioread8(0xAF, &value);
 				value &= 0xFD;                          //VSWITCHEN Disable
 				intel_scu_ipc_iowrite8(0xAF, value);
+#endif
 				printk("%s: Set V_3P30_SW to Disable\n", mmc_hostname(host));
+				if(sd_retry_detect == 0 && ((strcmp(mmc_hostname(host), "mmc1") == 0)) && (gpio_get_value(77) == 0)) {
+					pr_err("%s: mmc_rescan fialed, try re-detect sd card\n", mmc_hostname(host));
+					mmc_detect_change(host, msecs_to_jiffies(500));
+				}
+				sd_retry_detect = 1;
 			}
 		}
 		//<ASUS_BSP->
 	}
 	mmc_release_host(host);
+
+	if(i < ARRAY_SIZE(freqs) && ((strcmp(mmc_hostname(host), "mmc1") == 0)))
+		sd_retry_detect = 1;
 
  out:
 	mmc_emergency_setup(host);
@@ -3101,10 +3129,13 @@ static ssize_t sd_power_proc_write(struct file *file, const char __user *buf, si
 
 	if ((int)(str[0]) == (0+48)) {		//Disable
 		printk("mmc1: Disable SD card power vswitchen\n");
-
+#ifdef CONFIG_ZS550ML
+		gpio_direction_output(gpio_SD_3V3_EN, 0);      //GPIO(146) Disable
+#else
 		intel_scu_ipc_ioread8(0xAF, &value);
 		value &= 0xFD;                          //VSWITCHEN Disable
 		intel_scu_ipc_iowrite8(0xAF, value);
+#endif
 	}
 
 	return count;

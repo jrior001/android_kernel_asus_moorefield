@@ -512,13 +512,17 @@ void sst_debug_dump(struct intel_sst_drv *sst)
 		dump_sst_crash_area();
 
 	sst_dump_ipc_dispatch_lists(sst_drv_ctx);
-	dump_lpe_stack(sst);
 
-	/* Other than CHT, trigger IPANIC for SST_WAIT_TIMEOUT */
-	if ((sst_drv_ctx->pci_id == SST_CHT_PCI_ID) || (sst_drv_ctx->pci_id == SST_BYT_PCI_ID))
-		WARN_ON(1);
-	else {
+	/* Do stream recovery for CTP and BYT in case of sst timeout. For other platforms trigger
+	   ipanic in case of sst timeout*/
+	if ((sst_drv_ctx->pci_id == SST_CLV_PCI_ID) || (sst_drv_ctx->pci_id == SST_BYT_PCI_ID)) {
+		mutex_lock(&sst->sst_lock);
+		sst->sst_state = SST_RESET;
+		sst_stream_recovery(sst);
+		mutex_unlock(&sst->sst_lock);
+	} else {
 		pr_err("Triggering IPANIC due to SST wait timeout\n");
+		dump_lpe_stack(sst);
 		BUG();
 	}
 
@@ -536,6 +540,11 @@ void sst_debug_dump(struct intel_sst_drv *sst)
 int sst_wait_timeout(struct intel_sst_drv *sst_drv_ctx, struct sst_block *block)
 {
 	int retval = 0;
+	unsigned int block_timeout;
+	if (sst_drv_ctx->pci_id == SST_CLV_PCI_ID)
+		block_timeout = SST_BLOCK_TIMEOUT_2SEC;
+	else
+		block_timeout = SST_BLOCK_TIMEOUT;
 
 	/* NOTE:
 	Observed that FW processes the alloc msg and replies even
@@ -544,7 +553,7 @@ int sst_wait_timeout(struct intel_sst_drv *sst_drv_ctx, struct sst_block *block)
 		       block->condition, block->msg_id, block->drv_id);
 	if (wait_event_timeout(sst_drv_ctx->wait_queue,
 				block->condition,
-				msecs_to_jiffies(SST_BLOCK_TIMEOUT))) {
+				msecs_to_jiffies(block_timeout))) {
 		/* event wake */
 		pr_debug("sst: Event wake %x\n", block->condition);
 		pr_debug("sst: message ret: %d\n", block->ret_code);

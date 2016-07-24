@@ -61,7 +61,7 @@ static int config_output_low(int gpio)
         lnw_gpio_set_alt(gpio, LNW_GPIO);
         gpio_direction_output(gpio, 0);
         gpio_free(gpio);
-        return 0;        
+        return 0;
 }
 
 static int config_alt(int gpio)
@@ -79,7 +79,7 @@ static int config_alt(int gpio)
         return 0;
 }
 
-void xmm2230_disable_spi(bool disable) 
+void xmm2230_disable_spi(bool disable)
 {
         int clk, ss, rxd, txd, ret;
         if(get_spi_gpios(spi_bus_num, &clk, &ss, &rxd, &txd)) {

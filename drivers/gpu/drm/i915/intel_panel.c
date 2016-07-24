@@ -36,6 +36,7 @@
 #include <linux/pwm.h>
 #include <linux/platform_data/lp855x.h>
 #include <asm/spid.h>
+#include "intel_dsi.h"
 
 #define PCI_LBPC 0xf4 /* legacy/combination backlight modes */
 
@@ -470,15 +471,11 @@ static u32 intel_panel_get_backlight(struct drm_device *dev)
 	 * Was causing BUG as mutex was taken within spin_lock
 	 */
 	if (IS_VALLEYVIEW(dev) && dev_priv->is_mipi) {
-#ifdef CONFIG_CRYSTAL_COVE
 		if (BYT_CR_CONFIG) {
 			val = lpio_bl_read(0, LPIO_PWM_CTRL);
 			val &= 0xff;
 		} else
 			val = intel_mid_pmic_readb(0x4E);
-#else
-		DRM_ERROR("Backlight not supported yet\n");
-#endif
 	}
 
 	spin_lock_irqsave(&dev_priv->backlight.lock, flags);
@@ -555,7 +552,6 @@ void intel_panel_actually_set_backlight(struct drm_device *dev, u32 level)
 void intel_panel_actually_set_mipi_backlight(struct drm_device *dev, u32 level)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
-#ifdef CONFIG_CRYSTAL_COVE
 	/* For BYT-CR */
 	if (dev_priv->vbt.dsi.config->pmic_soc_blc) {
 		/* FixMe: if level is zero still a pulse is observed consuming
@@ -564,10 +560,7 @@ void intel_panel_actually_set_mipi_backlight(struct drm_device *dev, u32 level)
 		lpio_bl_write_bits(0, LPIO_PWM_CTRL, (0xff - level), 0xFF);
 		lpio_bl_update(0, LPIO_PWM_CTRL);
 	} else
-		intel_mid_pmic_writeb(0x4E, level);
-#else
-	DRM_ERROR("Non PMIC MIPI Backlight control is not supported yet\n");
-#endif
+		intel_mid_pmic_writeb(PMIC_PWM_LEVEL, level);
 }
 
 /* set backlight brightness to level in range [0..max] */
@@ -606,33 +599,59 @@ void intel_panel_set_backlight(struct drm_device *dev, u32 level, u32 max)
 
 	if (dev_priv->is_mipi)
 		intel_panel_actually_set_mipi_backlight(dev, level);
+	/* TODO: the below value is quite good for FFRD8, but BYT CR needs
+	MIPI panle some more tuning. Also need to check is it a HW limitation*/
+	usleep_range(2000, 3000);
 }
 
 void intel_panel_disable_backlight(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct intel_dsi *intel_dsi = NULL;
+	struct drm_crtc *crtc = NULL;
+	struct intel_encoder *encoder = NULL;
 	unsigned long flags;
 
+
 	if (IS_VALLEYVIEW(dev) && dev_priv->is_mipi) {
+		list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
+			for_each_encoder_on_crtc(dev, crtc, encoder) {
+				if (encoder->type == INTEL_OUTPUT_DSI)
+					intel_dsi =
+					enc_to_intel_dsi(&encoder->base);
+			}
+		}
+
 		intel_panel_actually_set_mipi_backlight(dev, 0);
 
-#ifdef CONFIG_CRYSTAL_COVE
 		if (dev_priv->vbt.dsi.config->pmic_soc_blc) {
 			/* cancel any delayed work scheduled */
-			cancel_delayed_work_sync(&dev_priv->bkl_delay_enable_work);
+			cancel_delayed_work_sync(
+				&dev_priv->bkl_delay_enable_work);
 
 			/* disable the backlight enable signal */
-			vlv_gpio_nc_write(dev_priv, 0x40E0, 0x2000CC00);
-			vlv_gpio_nc_write(dev_priv, 0x40E8, 0x00000004);
-			udelay(500);
+			if ((intel_dsi && dev_priv->vbt.dsi.seq_version >= 3)) {
+				if (intel_dsi->dev.dev_ops->disable_backlight)
+					intel_dsi->dev.dev_ops->disable_backlight(&intel_dsi->dev);
+			} else {
+				vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_BKLTEN_GPIONC_10_PCONF0,
+						VLV_GPIO_CFG);
+				vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_BKLTEN_GPIONC_10_PAD,
+						VLV_GPIO_INPUT_DIS);
+				udelay(500);
+			}
 			lpio_bl_write_bits(0, LPIO_PWM_CTRL, 0x00, 0x80000000);
 		} else {
-			intel_mid_pmic_writeb(0x51, 0x00);
-			intel_mid_pmic_writeb(0x4B, 0x7F);
+			if ((intel_dsi && dev_priv->vbt.dsi.seq_version >= 3)) {
+				if (intel_dsi->dev.dev_ops->disable_backlight)
+					intel_dsi->dev.dev_ops->disable_backlight(&intel_dsi->dev);
+			} else {
+				intel_mid_pmic_writeb(PMIC_PWM_EN, 0x00);
+				intel_mid_pmic_writeb(PMIC_BKL_EN, 0x7F);
+			}
 		}
-#else
-		DRM_ERROR("Backlight not supported yet\n");
-#endif
 	}
 
 	spin_lock_irqsave(&dev_priv->backlight.lock, flags);
@@ -721,23 +740,39 @@ void intel_panel_enable_backlight(struct drm_device *dev,
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	enum transcoder cpu_transcoder =
 		intel_pipe_to_cpu_transcoder(dev_priv, pipe);
-	unsigned long flags;
+	struct intel_dsi *intel_dsi = NULL;
+	struct drm_crtc *crtc = NULL;
+	struct intel_encoder *encoder = NULL;
+	unsigned long flags = 0;
 	uint32_t pwm_base;
 
 	if (IS_VALLEYVIEW(dev) && dev_priv->is_mipi) {
-#ifdef CONFIG_CRYSTAL_COVE
 		uint32_t val;
+
+		list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
+			for_each_encoder_on_crtc(dev, crtc, encoder) {
+				if (encoder->type == INTEL_OUTPUT_DSI)
+					intel_dsi = enc_to_intel_dsi(
+							&encoder->base);
+			}
+		}
 		/* For BYT-CR */
 		if (dev_priv->vbt.dsi.config->pmic_soc_blc) {
 			/* GPIOC_94 config to PWM0 function */
-			val = vlv_gps_core_read(dev_priv, 0x40A0);
-			vlv_gps_core_write(dev_priv, 0x40A0, 0x2000CC01);
-			vlv_gps_core_write(dev_priv, 0x40A8, 0x5);
+			val = vlv_gps_core_read(dev_priv,
+					GP_CAMERASB07_GPIONC_22_PCONF0);
+			vlv_gps_core_write(dev_priv,
+					GP_CAMERASB07_GPIONC_22_PCONF0,
+					0x2000CC01);
+			vlv_gps_core_write(dev_priv,
+					GP_CAMERASB07_GPIONC_22_PAD, 0x5);
 
-			/* PWM enable
-			* Assuming only 1 LFP
-			*/
-			pwm_base = compute_pwm_base(dev_priv->vbt.pwm_frequency);
+			/*
+			 * PWM enable
+			 * Assuming only 1 LFP
+			 */
+			pwm_base = compute_pwm_base(
+					dev_priv->vbt.backlight.pwm_freq_hz);
 			pwm_base = pwm_base << 8;
 			lpio_bl_write(0, LPIO_PWM_CTRL, pwm_base);
 			lpio_bl_update(0, LPIO_PWM_CTRL);
@@ -745,38 +780,40 @@ void intel_panel_enable_backlight(struct drm_device *dev,
 							0x80000000);
 			lpio_bl_update(0, LPIO_PWM_CTRL);
 
-			/* Backlight enable */
-			vlv_gpio_nc_write(dev_priv, 0x40E0, 0x2000CC00);
-			vlv_gpio_nc_write(dev_priv, 0x40E8, 0x00000005);
-			udelay(500);
+			if ((intel_dsi && dev_priv->vbt.dsi.seq_version >= 3)) {
+				if (intel_dsi->dev.dev_ops->enable_backlight)
+					intel_dsi->dev.dev_ops->
+					enable_backlight(&intel_dsi->dev);
+			} else {
+				/* Backlight enable */
+				vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_BKLTEN_GPIONC_10_PCONF0,
+						VLV_GPIO_CFG);
+				vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+						PANEL1_BKLTEN_GPIONC_10_PAD,
+						VLV_GPIO_INPUT_EN);
 
+				udelay(500);
+			}
 			if (lpdata)
 				schedule_delayed_work(&dev_priv->bkl_delay_enable_work,
 						msecs_to_jiffies(30));
 
 		} else {
-			intel_mid_pmic_writeb(0x4B, 0xFF);
-			intel_mid_pmic_writeb(0x51, 0x01);
-
-			/* Control Backlight Slope programming for LP8556 IC*/
-			if (lpdata && (spid.hardware_id == BYT_TABLET_BLK_8PR1)) {
-				mdelay(2);
-				if (lp855x_ext_write_byte(LP8556_CFG3, LP8556_MODE_SL_50MS_FL_HV_PWM_12BIT))
-					DRM_ERROR("Backlight slope programming failed\n");
-				else
-					DRM_INFO("Backlight slope programming success\n");
-				mdelay(2);
+			if ((intel_dsi && dev_priv->vbt.dsi.seq_version >= 3)) {
+				if (intel_dsi->dev.dev_ops->enable_backlight)
+					intel_dsi->dev.dev_ops->
+					enable_backlight(&intel_dsi->dev);
+			} else {
+				intel_mid_pmic_writeb(PMIC_BKL_EN, 0xFF);
+				intel_mid_pmic_writeb(PMIC_PWM_EN, 0x01);
 			}
 		}
-#else
-		DRM_ERROR("Backlight not supported yet\n");
-#endif
 	}
 
 	spin_lock_irqsave(&dev_priv->backlight.lock, flags);
 
 	if (dev_priv->backlight.level == 0) {
-		dev_priv->backlight.level = intel_panel_get_max_backlight(dev);
 		if (dev_priv->backlight.device)
 			dev_priv->backlight.device->props.brightness =
 				dev_priv->backlight.level;
@@ -843,13 +880,16 @@ static void intel_panel_init_backlight(struct drm_device *dev)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
 	dev_priv->backlight.level = intel_panel_get_backlight(dev);
+	if (dev_priv->backlight.level == 0) {
+		/*To handle scenarios where GOP missed to update the LFP backlight register*/
+		if (IS_VALLEYVIEW(dev) && dev_priv->is_mipi)
+			dev_priv->backlight.level = dev_priv->vbt.init_backlight_level;
+	}
 	dev_priv->backlight.enabled = dev_priv->backlight.level != 0;
 
-#ifdef CONFIG_CRYSTAL_COVE
 	if (BYT_CR_CONFIG)
 		INIT_DELAYED_WORK(&dev_priv->bkl_delay_enable_work,
 				scheduled_led_chip_programming);
-#endif
 }
 
 enum drm_connector_status

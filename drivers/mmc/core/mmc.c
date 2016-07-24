@@ -299,13 +299,12 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		}
 	}
 
+	/*
+	 * The EXT_CSD format is meant to be forward compatible. As long
+	 * as CSD_STRUCTURE does not change, all values for EXT_CSD_REV
+	 * are authorized, see JEDEC JESD84-B50 section B.8.
+	 */
 	card->ext_csd.rev = ext_csd[EXT_CSD_REV];
-	if (card->ext_csd.rev > 7) {
-		pr_err("%s: unrecognised EXT_CSD revision %d\n",
-			mmc_hostname(card->host), card->ext_csd.rev);
-		err = -EINVAL;
-		goto out;
-	}
 
 	card->ext_csd.raw_sectors[0] = ext_csd[EXT_CSD_SEC_CNT + 0];
 	card->ext_csd.raw_sectors[1] = ext_csd[EXT_CSD_SEC_CNT + 1];
@@ -564,6 +563,18 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		card->ext_csd.data_sector_size = 512;
 	}
 
+	/* eMMC v5.0 or later */
+	if (card->ext_csd.rev > 6) {
+		card->ext_csd.health[0] = ext_csd[EXT_CSD_HEALTH + 0];
+		card->ext_csd.health[1] = ext_csd[EXT_CSD_HEALTH + 1];
+		card->ext_csd.health[2] = ext_csd[EXT_CSD_HEALTH + 2];
+	}else{
+		card->ext_csd.health[0] = -1;
+		card->ext_csd.health[1] = -1;
+		card->ext_csd.health[2] = -1;
+	}
+	pr_info("%s: health = 0x%x 0x%x 0x%x, ext_csd.rev = %d\n",mmc_hostname(card->host), card->ext_csd.health[0], card->ext_csd.health[1], card->ext_csd.health[2], card->ext_csd.rev);
+
 	/*
 	 * If use legacy relaible write, then the blk counts must not
 	 * big than the relaible write sectors
@@ -670,6 +681,7 @@ MMC_DEV_ATTR(hw_reset_support, "%d\n", card->ext_csd.rst_n_function);
 MMC_DEV_ATTR(bkops_support, "%d\n", card->ext_csd.bkops);
 MMC_DEV_ATTR(bkops_enable, "%d\n", card->ext_csd.bkops_en);
 MMC_DEV_ATTR(rpmb_size, "%d\n", card->ext_csd.rpmb_size);
+MMC_DEV_ATTR(health,"0x%x 0x%x 0x%x\n",card->ext_csd.health[0],card->ext_csd.health[1],card->ext_csd.health[2]);
 
 /* init gpp_wppart as an invalide GPP */
 static unsigned int gpp_wppart = EXT_CSD_PART_CONFIG_ACC_GP0 - 1;
@@ -832,6 +844,7 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_gpp_wppart.attr,
 	&dev_attr_gpp_wpgroup.attr,
 	&dev_attr_gpp_wp.attr,
+	&dev_attr_health.attr,
 	NULL,
 };
 

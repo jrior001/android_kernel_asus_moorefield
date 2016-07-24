@@ -134,10 +134,12 @@ static struct sfi_device_table_entry imx219_entry = {
 
 static int __init platform_imx219_module_init(void)
 {
-	struct devs_id *dev;
-	dev = get_device_id(imx219_entry.type, imx219_entry.name);
-	if (dev && dev->device_handler)
-		dev->device_handler(&imx219_entry, dev);
+	if (is_moorefield()) {
+		struct devs_id *dev;
+		dev = get_device_id(imx219_entry.type, imx219_entry.name);
+		if (dev && dev->device_handler)
+			dev->device_handler(&imx219_entry, dev);
+	}
 	return 0;
 }
 

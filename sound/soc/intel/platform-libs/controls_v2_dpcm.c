@@ -143,8 +143,8 @@ int sst_probe_enum_info(struct snd_kcontrol *kcontrol,
 
 	if (uinfo->value.enumerated.item > e->max - 1)
 		uinfo->value.enumerated.item = e->max - 1;
-	strcpy(uinfo->value.enumerated.name,
-		e->texts[uinfo->value.enumerated.item]);
+	strncpy(uinfo->value.enumerated.name,
+		e->texts[uinfo->value.enumerated.item],sizeof(uinfo->value.enumerated.name));
 	return 0;
 }
 
@@ -205,8 +205,8 @@ int sst_slot_enum_info(struct snd_kcontrol *kcontrol,
 
 	if (uinfo->value.enumerated.item > e->max - 1)
 		uinfo->value.enumerated.item = e->max - 1;
-	strcpy(uinfo->value.enumerated.name,
-		e->texts[uinfo->value.enumerated.item]);
+	strncpy(uinfo->value.enumerated.name,
+		e->texts[uinfo->value.enumerated.item],sizeof(uinfo->value.enumerated.name));
 	return 0;
 }
 
@@ -422,6 +422,8 @@ static int sst_voice_mode_put(struct snd_kcontrol *kcontrol,
 
 	w = snd_soc_dapm_find_widget(&platform->dapm, sst_voice_widgets[0], true);
 
+	if (w == NULL)
+		return -EINVAL;
 	/* disable and enable the voice path so that the mode change takes effect */
 	if (w->power) {
 		sst_send_speech_path(sst, SST_SWITCH_OFF);
@@ -430,7 +432,8 @@ static int sst_voice_mode_put(struct snd_kcontrol *kcontrol,
 		sst_send_pipe_module_params(w);
 		for (i = 1; i < ARRAY_SIZE(sst_voice_widgets); i++) {
 			w = snd_soc_dapm_find_widget(&platform->dapm, sst_voice_widgets[i], true);
-			sst_send_pipe_module_params(w);
+			if (w != NULL)
+				sst_send_pipe_module_params(w);
 		}
 	}
 	return 0;
@@ -926,7 +929,7 @@ void sst_handle_vb_timer(struct snd_soc_platform *p, bool enable)
 				SST_TASK_SBA, 0, &cmd, sizeof(cmd.header) + cmd.header.length) == 0) {
 
 			if (sst_dsp->ops->set_generic_params(SST_SET_MONITOR_LPE,
-									(void *)&enable) != 0)
+									(void *)&enable) == 0)
 				pr_err("%s: failed to set recovery timer\n", __func__);
 		} else
 			pr_err("%s: failed to send sst cmd %d\n",
@@ -1012,12 +1015,16 @@ static int sst_get_frame_sync_freq(unsigned int rate)
 	pr_debug("Enter:%s, rate=%x\n", __func__, rate);
 	switch (rate) {
 	case SNDRV_PCM_RATE_8000:
+	case SNDRV_BTNS_PCM_RATE_8000:
 		return SSP_FS_8_KHZ;
 	case SNDRV_PCM_RATE_16000:
+	case SNDRV_BTNS_PCM_RATE_16000:
 		return SSP_FS_16_KHZ;
 	case SNDRV_PCM_RATE_44100:
+	case SNDRV_BTNS_PCM_RATE_44100:
 		return SSP_FS_44_1_KHZ;
 	case SNDRV_PCM_RATE_48000:
+	case SNDRV_BTNS_PCM_RATE_48000:
 		return SSP_FS_48_KHZ;
 	default:
 		pr_err("Invalid frame sync freq\n");
@@ -1165,6 +1172,7 @@ void send_ssp_cmd(struct snd_soc_platform *platform, unsigned int rate, unsigned
 		cmd.reserved1 = cmd.reserved2 = 0xFF;
 	}
 #endif
+
 	sst_fill_and_send_cmd(sst, SST_IPC_IA_CMD, SST_FLAG_BLOCKED,
 				SST_TASK_SBA, 0, &cmd,
 				sizeof(cmd.header) + cmd.header.length);

@@ -40,11 +40,14 @@
 #include <asm/delay.h>
 
 #include "spi-pxa2xx.h"
+#include <linux/HWVersion.h>
 
 MODULE_AUTHOR("Stephen Street");
 MODULE_DESCRIPTION("PXA2xx SSP SPI Controller");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:pxa2xx-spi");
+
+extern int Read_PROJ_ID(void);
 
 #define MAX_BUSES 3
 
@@ -785,6 +788,10 @@ static void pump_transfers(unsigned long data)
 	drv_data->dma_mapped = 0;
 	if (pxa2xx_spi_dma_is_possible(drv_data->len))
 		drv_data->dma_mapped = pxa2xx_spi_map_dma_buffers(drv_data);
+	// do not enable dma on SSP6 >>
+	if ((Read_PROJ_ID() == PROJ_ID_ZX550ML || Read_PROJ_ID() == PROJ_ID_ZS570ML || Read_PROJ_ID() == PROJ_ID_ZS571ML) && (drv_data->ssp->port_id == 6))
+		drv_data->dma_mapped = 0;  // override the dma_mapped
+	// do not enable dma on SSP6 <<
 	if (drv_data->dma_mapped) {
 
 		/* Ensure we have the correct interrupt handler */
@@ -1278,6 +1285,10 @@ static int pxa2xx_spi_probe(struct platform_device *pdev)
 	if ((drv_data->ssp_type == INTEL_SSP) && (drv_data->ssp->port_id != 5))
 		platform_info->enable_dma = true;
 
+	// do not enable dma on SSP6 >>
+	if ((Read_PROJ_ID() == PROJ_ID_ZX550ML || Read_PROJ_ID() == PROJ_ID_ZS570ML || Read_PROJ_ID() == PROJ_ID_ZS571ML) && (drv_data->ssp->port_id == 6))
+		platform_info->enable_dma = false;  // override the enable_dma
+	// do not enable dma on SSP6 <<
 	/* Setup DMA if requested */
 	drv_data->tx_channel = -1;
 	drv_data->rx_channel = -1;
@@ -1390,7 +1401,9 @@ static int pxa2xx_spi_suspend(struct device *dev)
 	if (status != 0)
 		return status;
 	write_SSCR0(0, drv_data->ioaddr);
-	clk_disable_unprepare(ssp->clk);
+
+	if (!pm_runtime_suspended(dev))
+		clk_disable_unprepare(ssp->clk);
 
 	return 0;
 }
@@ -1402,7 +1415,8 @@ static int pxa2xx_spi_resume(struct device *dev)
 	int status = 0;
 
 	/* Enable the SSP clock */
-	clk_prepare_enable(ssp->clk);
+	if (!pm_runtime_suspended(dev))
+		clk_prepare_enable(ssp->clk);
 
 	/* Restore LPSS private register bits */
 	lpss_ssp_restore(drv_data);

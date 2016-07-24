@@ -420,6 +420,7 @@ struct intel_crtc {
 	u8 lut_r[256], lut_g[256], lut_b[256];
 	u32 flags;
 	__u32 z_order;
+	__u32 alpha;
 	/*
 	 * Whether the crtc and the connected output pipeline is active. Implies
 	 * that crtc->enabled is set, i.e. the current mode configuration has
@@ -450,10 +451,6 @@ struct intel_crtc {
 	struct intel_crtc_config config;
 
 	uint32_t ddi_pll_sel;
-	bool primary_alpha;
-	bool sprite0_alpha;
-	bool sprite1_alpha;
-	uint32_t last_pixel_size;
 
 	/* reset counter value when the last flip was submitted */
 	unsigned int reset_counter;
@@ -489,6 +486,7 @@ struct intel_plane {
 	u32 flags;
 	__u32 z_order;
 	__u32 rrb2_enable;
+	__u32 alpha;
 	int crtc_x, crtc_y;
 	unsigned int crtc_w, crtc_h;
 	uint32_t src_x, src_y;
@@ -685,9 +683,6 @@ struct intel_unpin_work {
 #define PPM_MULTIPLIER		1000000
 #define NANOSEC_MULTIPLIER	1000000000
 #define INVERSE_BEND_RESOLUTION	(VLV_ACCUMULATOR_SIZE*48*128)
-
-/* Added to control Backlight Slope programming */
-#define LP8556_MODE_SL_50MS_FL_HV_PWM_12BIT      0x3E
 
 struct intel_program_clock_bending {
 	u32 dotclock;

@@ -110,12 +110,10 @@
 #define CHRG_ILIM_3000MA		0x6	/* 3000mA */
 
 #define DC_CHRG_VLTFC_REG		0x38
-#define CHRG_VLTFC_0C			0xB5	/* 0  DegC */
-#define CHRG_VLTFC_N5C			0xD3 	/* -5 DegC */
+#define CHRG_VLTFC_N5C			0xAA	/* 0 DegC */
 
 #define DC_CHRG_VHTFC_REG		0x39
-#define CHRG_VHTFC_55C			0x16	/* 55 DegC */
-#define CHRG_VHTFC_60C			0x13    /* 60 DegC */
+#define CHRG_VHTFC_60C			0x1E	/* 45 DegC */
 
 #define DC_PWRSRC_IRQ_CFG_REG		0x40
 #define PWRSRC_IRQ_CFG_VBUS_LOW		(1 << 2)
@@ -254,6 +252,70 @@ static enum power_supply_property pmic_chrg_usb_props[] = {
 static struct pmic_chrg_info *pinfo;
 static int probe_retry_cnt;
 
+#ifdef CONFIG_BTNS_PMIC
+#define MATCHED_OCV    4230
+static struct power_supply *fg_psy;
+
+/* check_batt_psy -check for whether power supply type is battery
+ * @dev : Power Supply dev structure
+ * @data : Power Supply Driver Data
+ * Context: can sleep
+ *
+ * Return true if power supply type is battery
+ *
+ */
+static int check_batt_psy(struct device *dev, void *data)
+{
+	struct power_supply *psy = dev_get_drvdata(dev);
+
+	/* check for whether power supply type is battery */
+	if (psy->type == POWER_SUPPLY_TYPE_BATTERY) {
+		fg_psy = psy;
+		return 1;
+	}
+	return 0;
+}
+
+/**
+ * get_fg_chip_psy - identify the Fuel Gauge Power Supply device
+ * Context: can sleep
+ *
+ * Return Fuel Gauge power supply structure
+ */
+static struct power_supply *get_fg_chip_psy(void)
+{
+	if (fg_psy)
+		return fg_psy;
+
+	/* loop through power supply class */
+	class_for_each_device(power_supply_class, NULL, NULL,
+		check_batt_psy);
+	return fg_psy;
+}
+
+/**
+ * fg_chip_get_property - read a power supply property from Fuel Gauge driver
+ * @psp : Power Supply property
+ *
+ * Return power supply property value
+ *
+ */
+static int fg_chip_get_property(enum power_supply_property psp)
+{
+	union power_supply_propval val;
+	int ret = -ENODEV;
+
+	if (!fg_psy)
+		fg_psy = get_fg_chip_psy();
+	if (fg_psy) {
+		ret = fg_psy->get_property(fg_psy, psp, &val);
+		if (!ret)
+			return val.intval;
+	}
+	return ret;
+}
+#endif
+
 static int pmic_chrg_reg_readb(struct pmic_chrg_info *info, int reg)
 {
 	int ret, i;
@@ -348,7 +410,7 @@ static enum power_supply_type get_power_supply_type(
 static inline int pmic_chrg_set_cc(struct pmic_chrg_info *info, int cc)
 {
 	u8 reg_val;
-	int ret;
+	int ret, vocv;
 
 	dev_info(&info->pdev->dev, "%s: cc=%d\n", __func__, cc);
 	/* read CCCV register */
@@ -360,6 +422,15 @@ static inline int pmic_chrg_set_cc(struct pmic_chrg_info *info, int cc)
 		cc = CHRG_CCCV_CC_OFFSET;
 	else if (cc > info->max_cc)
 		cc = info->max_cc;
+
+#ifdef CONFIG_BTNS_PMIC
+	/* read the battery OCV */
+	vocv = fg_chip_get_property(POWER_SUPPLY_PROP_VOLTAGE_OCV);
+	if (vocv == -ENODEV || vocv == -EINVAL)
+		dev_err(&info->pdev->dev, "Can't read battery OCV from FG\n");
+	else if ((vocv/1000) > MATCHED_OCV)
+		cc = CHRG_CCCV_CC_OFFSET;
+#endif
 
 	reg_val = (cc - CHRG_CCCV_CC_OFFSET) / CHRG_CCCV_CC_LSB_RES;
 	reg_val = (ret & ~CHRG_CCCV_CC_MASK) | (reg_val << CHRG_CCCV_CC_BIT_POS);
@@ -851,11 +922,7 @@ static void dc_xpwr_otg_event_worker(struct work_struct *work)
 		dev_warn(&info->pdev->dev, "vbus path disable failed\n");
 
 	if (info->pdata->otg_gpio >= 0) {
-#if defined(CONFIG_MRD7) || defined(CONFIG_MRD8)
 		ret = dc_xpwr_turn_otg_vbus(info, info->id_short);
-#else
-		ret = dc_xpwr_turn_otg_vbus(info, !info->id_short);
-#endif
 		if (ret < 0)
 			dev_err(&info->pdev->dev,
 					"VBUS ON/OFF FAILED: %d\n",
@@ -911,6 +978,21 @@ static int pmic_chrg_init_hw_regs(struct pmic_chrg_info *info)
 		return ret;
 	}
 
+#ifdef CONFIG_BTNS_PMIC
+	/* Turn-off charger o/p after charge cycle ends */
+	ret = pmic_chrg_reg_clearb(info, DC_CHRG_CNTL2_REG, CNTL2_CHG_OUT_TURNON);
+	if (ret < 0) {
+		dev_err(&info->pdev->dev, "Failed to Turn-off charger\n");
+		return ret;
+	}
+
+	/* set the Charge end condition to 10% of CC */
+	ret = pmic_chrg_reg_clearb(info, DC_CHRG_CCCV_REG, CHRG_CCCV_ITERM_20P);
+	if (ret < 0) {
+		dev_err(&info->pdev->dev, "Failed to program Iterm as 10\%\n");
+		return ret;
+	}
+#else
 	/* do not turn-off charger o/p after charge cycle ends.
 	 * Set charge timer as 12Hrs.
 	 */
@@ -927,7 +1009,7 @@ static int pmic_chrg_init_hw_regs(struct pmic_chrg_info *info)
 		dev_err(&info->pdev->dev, "Failed to program Iterm as 20\%\n");
 		return ret;
 	}
-
+#endif
 	/* enable interrupts */
 	ret = pmic_chrg_reg_setb(info, DC_BAT_IRQ_CFG_REG, BAT_IRQ_CFG_BAT_MASK);
 	if (ret < 0) {
@@ -1043,12 +1125,6 @@ static int pmic_chrg_probe(struct platform_device *pdev)
 	INIT_WORK(&info->otg_work, dc_xpwr_otg_event_worker);
 
 	pmic_chrg_init_psy_props(info);
-	pmic_chrg_init_irq(info);
-	ret = pmic_chrg_init_hw_regs(info);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "Failed to initialize the charge registers, ret=%d\n", ret);
-		goto chrg_init_failed;
-	}
 	info->a_bus_enable = true;
 
 	platform_set_drvdata(pdev, info);
@@ -1083,6 +1159,14 @@ static int pmic_chrg_probe(struct platform_device *pdev)
 			ret);
 		goto psy_reg_failed;
 	}
+
+	pmic_chrg_init_irq(info);
+	ret = pmic_chrg_init_hw_regs(info);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "Failed to initialize the charge registers, ret=%d\n", ret);
+		goto chrg_init_failed;
+	}
+
 	INIT_DELAYED_WORK(&info->chrg_full_wrkr, xpwr_full_worker);
 
 	return 0;
@@ -1094,10 +1178,13 @@ chrg_init_failed:
 	 */
 	if (probe_retry_cnt < RETRY_RW)
 		ret = -EPROBE_DEFER;
-psy_reg_failed:
 	/* Free IRQs */
 	for (i = 0; i < DC_CHRG_INTR_NUM && info->irq[i] != -1; i++)
 		free_irq(info->irq[i], info);
+	if (info->otg)
+		usb_put_phy(info->otg);
+	power_supply_unregister(&info->psy_usb);
+psy_reg_failed:
 	return ret;
 }
 

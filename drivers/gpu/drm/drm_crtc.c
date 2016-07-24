@@ -3298,6 +3298,8 @@ static int drm_mode_connector_set_obj_prop(struct drm_mode_object *obj,
 
 	struct drm_connector *connector = obj_to_connector(obj);
 	struct drm_device *dev = connector->dev;
+
+	cancel_delayed_work_sync(&dev->mode_config.dpms_work);
 	gobj = obj;
 	mutex_lock(&gvalue_lock);
 	if (value == DRM_MODE_DPMS_ASYNC_ON)
@@ -3312,8 +3314,10 @@ static int drm_mode_connector_set_obj_prop(struct drm_mode_object *obj,
 			if ((value == DRM_MODE_DPMS_ASYNC_ON) ||
 				(value == DRM_MODE_DPMS_ASYNC_OFF)) {
 				DRM_ERROR("ASYNC DPMS flag ON\n");
+				drm_object_property_set_value(&connector->base, property, value);
 				queue_delayed_work(system_nrt_wq,
 					&dev->mode_config.dpms_work, 0);
+				return 0;
 			} else
 				(*connector->funcs->dpms)(connector,
 					(int)value);
@@ -3674,12 +3678,10 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
 	if ((hdisplay > fb->width ||
 	    vdisplay > fb->height ||
 	    crtc->x > fb->width - hdisplay ||
-	    crtc->y > fb->height - vdisplay) && !crtc->panning_en) {
+	    crtc->y > fb->height - vdisplay)) {
 		DRM_DEBUG_KMS("Invalid fb size %ux%u for CRTC viewport %ux%u+%d+%d%s.\n",
 			      fb->width, fb->height, hdisplay, vdisplay, crtc->x, crtc->y,
 			      crtc->invert_dimensions ? " (inverted)" : "");
-		ret = -ENOSPC;
-		goto out;
 	}
 
 	if (crtc->fb->pixel_format != fb->pixel_format)

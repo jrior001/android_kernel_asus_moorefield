@@ -30,6 +30,7 @@
 #include <linux/device.h>
 #include <linux/gpio.h>
 #include <linux/slab.h>
+#include <linux/reboot.h>
 #include <asm/intel_soc_pmc.h>
 #include <linux/acpi_gpio.h>
 #include <asm/intel-mid.h>
@@ -60,6 +61,20 @@
 #define BYT_BUTTON_EN_DELAY             1500
 
 #define BYT_HS_DET_RETRY_COUNT          6
+
+static struct platform_device *byt_pdev;
+
+static int byt_bl_reboot_callback(struct notifier_block *nfb, unsigned long event, void *data)
+{
+	pr_info("%s triggered\n", __func__);
+	snd_soc_suspend(&byt_pdev->dev);
+	return NOTIFY_OK;
+}
+
+static struct notifier_block byt_bl_reboot_notifier_block = {
+	.notifier_call = byt_bl_reboot_callback,
+	.priority = 1,
+};
 
 struct byt_mc_private {
 #ifdef CONFIG_SND_SOC_COMMS_SSP
@@ -1195,6 +1210,7 @@ static int snd_byt_mc_probe(struct platform_device *pdev)
 	}
 
 	/* register the soc card */
+	byt_pdev = pdev;
 	snd_soc_card_byt.dev = &pdev->dev;
 	snd_soc_card_set_drvdata(&snd_soc_card_byt, drv);
 	ret_val = snd_soc_register_card(&snd_soc_card_byt);
@@ -1203,6 +1219,7 @@ static int snd_byt_mc_probe(struct platform_device *pdev)
 		return ret_val;
 	}
 	platform_set_drvdata(pdev, &snd_soc_card_byt);
+	register_reboot_notifier(&byt_bl_reboot_notifier_block);
 	pr_info("%s successful\n", __func__);
 	return ret_val;
 }
@@ -1225,6 +1242,7 @@ static int snd_byt_mc_remove(struct platform_device *pdev)
 	struct byt_mc_private *drv = snd_soc_card_get_drvdata(soc_card);
 
 	pr_debug("In %s\n", __func__);
+	unregister_reboot_notifier(&byt_bl_reboot_notifier_block);
 	snd_byt_unregister_jack(drv);
 	snd_soc_card_set_drvdata(soc_card, NULL);
 	snd_soc_unregister_card(soc_card);

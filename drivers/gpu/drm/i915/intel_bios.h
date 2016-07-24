@@ -206,10 +206,19 @@ struct bdb_general_features {
 #define EDP_SUPPORT           0x1806
 #define MIPI_SUPPORT          0x1400
 
+#define HDMI_LEVEL_SHIFTER_MASK	0x1F
+
 struct child_device_config {
 	u16 handle;
 	u16 device_type;
-	u8  device_id[10]; /* ascii string */
+	u8  i2c_speed;
+	u8  dp_onboard_redriver;
+	u8  dp_ondock_redriver;
+	u8  hdmi_level_shifter;
+	u16 dtd_buf_ptr;
+	u8  efp_edidless_enable;
+	u16 reserved_2byte;
+	u8  reserved_1byte;
 	u16 addin_offset;
 	u8  dvo_port; /* See Device_PORT_* above */
 	u8  i2c_pin;
@@ -217,13 +226,13 @@ struct child_device_config {
 	u8  ddc_pin;
 	u16 edid_ptr;
 	u8  dvo_cfg; /* See DEVICE_CFG_* above */
-	u8  dvo2_port;
-	u8  i2c2_pin;
-	u8  slave2_addr;
-	u8  ddc2_pin;
+	u8  flag1;
+	u8  compatibility;
+	u8  aux_channel;
+	u8  dongle_detect;
 	u8  capabilities;
 	u8  dvo_wiring;/* See DEVICE_WIRE_* above */
-	u8  dvo2_wiring;
+	u8  mipi_bridge_type;
 	u16 extended_type;
 	u8  dvo_function;
 } __attribute__((packed));
@@ -284,18 +293,6 @@ struct bdb_lvds_options {
 	/* LVDS backlight control type bits stored here */
 	u32 blt_control_type_bits;
 } __attribute__((packed));
-
-struct bdb_panel_backlight {
-	/* Backlight control parameters */
-	u8 type:2;
-	u8 inverter_pol:1;
-	u8 gpio:3;
-	u8 gmbus:2;
-	u16 pwm_freq;
-	u8 minbrightness;
-	u8 i2c_slave_addr;
-	u8 brightnesscmd;
-} __packed;
 
 /* LFP pointer table contains entries to the struct below */
 struct bdb_lvds_lfp_data_ptr {
@@ -379,6 +376,22 @@ struct bdb_lvds_lfp_data {
 	u16 scaling_enabling_bits;
 	u8 seamless_drrs_min_vrefresh[16];
 } __attribute__((packed));
+
+struct bdb_lfp_backlight_data_entry {
+	u8 type:2;
+	u8 active_low_pwm:1;
+	u8 obsolete1:5;
+	u16 pwm_freq_hz;
+	u8 min_brightness;
+	u8 obsolete2;
+	u8 obsolete3;
+} __packed;
+
+struct bdb_lfp_backlight_data {
+	u8 entry_size;
+	struct bdb_lfp_backlight_data_entry data[16];
+	u8 level[16];
+} __packed;
 
 struct aimdb_header {
 	char signature[16];
@@ -783,10 +796,6 @@ struct mipi_config {
 
 } __packed;
 
-struct bdb_mipi_config {
-	struct mipi_config config[0];
-};
-
 /* Block 52 contains MiPi configuration block
  * 6 * bdb_mipi_config, followed by 6 pps data
  * block below
@@ -797,6 +806,11 @@ struct mipi_pps_data {
 	u16 bl_disable_delay;
 	u16 panel_off_delay;
 	u16 panel_power_cycle_delay;
+};
+
+struct bdb_mipi_config {
+	struct mipi_config config[MAX_MIPI_CONFIGURATIONS];
+	struct mipi_pps_data pps[MAX_MIPI_CONFIGURATIONS];
 };
 
 /* MIPI Sequnece Block definitions */
@@ -810,6 +824,9 @@ enum MIPI_SEQ {
 	MIPI_SEQ_BACKLIGHT_ON,
 	MIPI_SEQ_BACKLIGHT_OFF,
 	MIPI_SEQ_TEAR_ON,
+	MIPI_SEQ_TEAR_OFF,
+	MIPI_POWER_ON,
+	MIPI_POWER_OFF,
 	MIPI_SEQ_MAX
 
 };
@@ -820,6 +837,8 @@ enum MIPI_SEQ_ELEMENT {
 	MIPI_SEQ_ELEM_DELAY,
 	MIPI_SEQ_ELEM_GPIO,
 	MIPI_SEQ_ELEM_I2C,
+	MIPI_SEQ_ELEM_SPI,
+	MIPI_SEQ_ELEM_PMIC,
 	MIPI_SEQ_ELEM_STATUS,
 	MIPI_SEQ_ELEM_MAX
 
@@ -847,7 +866,7 @@ enum MIPI_GPIO_PIN_INDEX {
 /* We will have variable number of these - max 6 */
 struct bdb_mipi_sequence {
 	u8 version;
-	void *data;
+	u8 data[0];
 };
 
 #endif /* _I830_BIOS_H_ */

@@ -28,3 +28,7 @@ source "drivers/mmc/card/Kconfig"
 source "drivers/mmc/host/Kconfig"
 
 endif # MMC
+
+config ASUS_FACTORY_MODE
+	bool "asus factory items"
+	default n

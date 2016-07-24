@@ -135,6 +135,9 @@ static int hub_usb3_port_disable(struct usb_hub *hub, int port1)
 	int total_time;
 	u16 portchange, portstatus;
 
+	if (!hub)
+		return -EINVAL;
+
 	if (!(hub->hdev->speed == USB_SPEED_SUPER))
 		return -EINVAL;
 

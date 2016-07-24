@@ -78,9 +78,15 @@ static void flush_to_bottom_log(struct logger_log *log,
 	char extendedtag[8] = "\4KERNEL\0";
 	unsigned long flags;
 	struct logger_plugin *plugin;
-	struct timespec boottime, monotime, logtime;
+	struct timespec boottime, logtime;
+	static struct timespec monotime;
 
-	get_monotonic_boottime(&monotime);
+	/*This means that we might lose some precision
+	for the messages coming while timekeeping is
+	suspended, but this is acceptable*/
+	if (!timekeeping_suspended)
+		get_monotonic_boottime(&monotime);
+
 	getboottime(&boottime);
 	logtime = timespec_add(boottime, monotime);
 

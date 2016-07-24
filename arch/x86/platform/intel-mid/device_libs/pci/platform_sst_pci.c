@@ -278,9 +278,10 @@ static void set_mofd_sst_config(struct sst_platform_info *sst_info)
 	sst_info->debugfs_data = &moor_debugfs_data;
 	sst_info->lib_info = &mofd_lib_dnld_info;
 
-	sst_info->enable_recovery = 0;
+	/* Enable recovery for mofd based devices*/
+	sst_info->enable_recovery = 1;
 	/* Timer based recovery not enabled in mofd based devices */
-	sst_info->start_recovery_timer = false;
+	sst_info->start_recovery_timer = true;
 
 	return ;
 
@@ -298,7 +299,12 @@ static struct sst_platform_info *get_sst_platform_data(struct pci_dev *pdev)
 		sst_pinfo = &sst_data;
 		break;
 	case PCI_DEVICE_ID_INTEL_SST_MRFLD:
-		set_mrfld_sst_config(&sst_data);
+	if (INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, PRO) ||
+			INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, ENG)) {
+			set_mofd_sst_config(&sst_data);
+		} else
+			set_mrfld_sst_config(&sst_data);
+
 		sst_pinfo = &sst_data;
 		break;
 	case PCI_DEVICE_ID_INTEL_SST_MOOR:

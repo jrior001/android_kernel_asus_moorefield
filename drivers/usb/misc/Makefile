@@ -30,3 +30,4 @@ obj-$(CONFIG_USB_HSIC_USB3503)		+= usb3503.o
 obj-$(CONFIG_USB_TEST_MODE)		+= usb2_test_mode.o
 
 obj-$(CONFIG_USB_SISUSBVGA)		+= sisusbvga/
+obj-$(CONFIG_USB_FUSB302)	    += asus_usb/

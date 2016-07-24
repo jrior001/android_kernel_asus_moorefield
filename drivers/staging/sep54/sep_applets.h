@@ -20,7 +20,9 @@
 #define _SEP_APPLETS_H
 
 /* Kernel side threads (Agents as DX calls them) */
-#define RPMB_AGENT_ID            0
+#define RPMB_AGENT_ID      0
+#define SEP_READ_AGENT_ID  1
+#define SEP_WRITE_AGENT_ID 2
 
 /* Applet UUIDs */
 #define DEFAULT_APP_UUID { 0x00, 0xDE, 0xFA, 0x01, 0xDE, 0xFA, 0x02, 0xDE, \

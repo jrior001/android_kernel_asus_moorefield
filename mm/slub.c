@@ -1203,8 +1203,8 @@ static unsigned long kmem_cache_flags(unsigned long object_size,
 	/*
 	 * Enable debugging if selected on the kernel commandline.
 	 */
-	if (slub_debug && (!slub_debug_slabs ||
-		!strncmp(slub_debug_slabs, name, strlen(slub_debug_slabs))))
+	if (slub_debug && (!slub_debug_slabs || (name &&
+		!strncmp(slub_debug_slabs, name, strlen(slub_debug_slabs)))))
 		flags |= slub_debug;
 
 	return flags;
@@ -3391,6 +3391,13 @@ int kmem_cache_shrink(struct kmem_cache *s)
 	if (!slabs_by_inuse)
 		return -ENOMEM;
 
+	/*
+	 * Do not discard empty slabs which are mainly preserved for future
+	 * requests from usbnet.
+	 */
+	if (!strcmp(s->name, "kmalloc-16384") || !strcmp(s->name, "kmalloc-32768"))
+		goto out;
+
 	flush_all(s);
 	for_each_node_state(node, N_NORMAL_MEMORY) {
 		n = get_node(s, node);
@@ -3428,7 +3435,7 @@ int kmem_cache_shrink(struct kmem_cache *s)
 		list_for_each_entry_safe(page, t, slabs_by_inuse, lru)
 			discard_slab(s, page);
 	}
-
+out:
 	kfree(slabs_by_inuse);
 	return 0;
 }
@@ -4293,7 +4300,13 @@ static ssize_t show_slab_objects(struct kmem_cache *s,
 
 			page = ACCESS_ONCE(c->partial);
 			if (page) {
-				x = page->pobjects;
+				node = page_to_nid(page);
+				if (flags & SO_TOTAL)
+					WARN_ON_ONCE(1);
+				else if (flags & SO_OBJECTS)
+					WARN_ON_ONCE(1);
+				else
+					x = page->pages;
 				total += x;
 				nodes[node] += x;
 			}

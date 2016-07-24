@@ -18,8 +18,11 @@
 //#include <linux/qpnp/qpnp-adc.h>
 #include <linux/HWVersion.h>
 #include <linux/switch.h>
-
 #include "asus_battery.h"
+#include "smb_external_include.h"
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+
 
 #define max17058_VCELL_REG			0x02/*max17058_VCELL_MSB*/
 #define max17058_SOC_REG				0x04/*max17058_SOC_MSB*/
@@ -37,19 +40,20 @@
 #define max17058_MODEL_ACCESS_LOCK		0x0000
 #define max17058_POR_CMD					0x5400 //add by peter
 
-#define max17058_DELAY		10*HZ //1000->10*HZ
+#define max17058_DELAY		60*HZ //1000->10*HZ
 #define max17058_BATTERY_FULL	95
 
 //below are from .ini file
 //--------------------.ini file---------------------------------
-#define INI_RCOMP 		(138)
+#define INI_RCOMP 		(165)
+#define INI_RCOMP_CHR 	(160)
 #define INI_RCOMP_FACTOR	1
-const static int TempCoHot = -2150*INI_RCOMP_FACTOR;
-const static int TempCoCold = -2650*INI_RCOMP_FACTOR;
+const static int TempCoHot = -2300*INI_RCOMP_FACTOR;
+const static int TempCoCold = -4100*INI_RCOMP_FACTOR;
 
-#define INI_SOCCHECKA		(116)
-#define INI_SOCCHECKB		(118)
-#define INI_OCVTEST 		(58784)
+#define INI_SOCCHECKA		(121)
+#define INI_SOCCHECKB		(123)
+#define INI_OCVTEST 		(58992)
 #define INI_BITS		(18)
 //--------------------.ini file end-------------------------------
 
@@ -73,9 +77,10 @@ static u8 por_flag = 0;
 static struct dev_func max17058_tbl;
 static struct switch_dev max17058_batt_dev;
 static struct max17058_chip *g_max17058_chip;
-static int g_temp=25;
+static int g_temp=25, g_soc=0;
 
 struct max17058_chip {
+	struct mutex lock;
 	struct i2c_client		*client;
 	struct delayed_work		work;
 	struct delayed_work		hand_work;
@@ -95,14 +100,14 @@ struct max17058_chip {
 
 
 uint8_t model_data[] = {
-	0xA2, 0xF0, 0xB6, 0x70, 0xB8, 0x20, 0xBA, 0x40,
-	0xBB, 0x90, 0xBC, 0xB0, 0xBD, 0xE0, 0xBF, 0x20,
-	0xC0, 0x70, 0xC1, 0x80, 0xC4, 0x80, 0xC7, 0xD0,
-	0xCE, 0x00, 0xD2, 0x50, 0xD5, 0x20, 0xDB, 0xA0,
-	0x00, 0x20, 0x0E, 0x80, 0x11, 0x10, 0x11, 0xB0,
-	0x17, 0x00, 0x19, 0xD0, 0x12, 0xE0, 0x11, 0xF0,
-	0x0C, 0xF0, 0x09, 0xF0, 0x07, 0xF0, 0x07, 0x80,
-	0x06, 0x80, 0x07, 0x10, 0x07, 0x00, 0x07, 0x00
+	0x96, 0x00, 0xB7, 0x50, 0xB8, 0x70, 0xBA, 0x90,
+	0xBC, 0x20, 0xBD, 0x40, 0xBD, 0xF0, 0xBF, 0x60,
+	0xC0, 0x00, 0xC3, 0x30, 0xC6, 0x10, 0xC8, 0x60,
+	0xCF, 0xD0, 0xD1, 0xF0, 0xD6, 0x40, 0xDC, 0x70,
+	0x00, 0x20, 0x1B, 0x50, 0x0F, 0xA0, 0x14, 0xD0,
+	0x19, 0x10, 0x17, 0x30, 0x15, 0xC0, 0x14, 0xA0,
+	0x0C, 0x40, 0x08, 0x30, 0x08, 0xE0, 0x07, 0xA0,
+	0x07, 0x30, 0x06, 0xA0, 0x07, 0x50, 0x07, 0x50
 };
 
 static int max17058_write_reg(struct i2c_client *client, u8 reg, u16 value)
@@ -370,11 +375,22 @@ static void handle_model(struct i2c_client *client,int load_or_verify) {
 	bool model_load_ok = false;
 	int status;
 	int check_times = 0;
-    
+	u16 rcomp_reg=0, tmp_reg=0;
+
+	tmp_reg = max17058_read_reg(client, max17058_RCOMP_REG);
+	GAUGE_INFO("max17058_RCOMP_REG = 0x%04x\n", tmp_reg);
+	rcomp_reg = tmp_reg & 0x00FF;
+	tmp_reg = tmp_reg >> 8;
+
 	status = max17058_check_por(client);
-	if(status)
+	if (status)
 	{
 		GAUGE_INFO("POR happens,need to load model data\n");
+		por_flag = 1;
+	}
+	else if ((tmp_reg != 0x001d)&&(tmp_reg != 0x003d))
+	{
+		GAUGE_INFO("reg 0x0D=0x%04x != 0x001d/0x003d, need to load model data\n", tmp_reg);
 		por_flag = 1;
 	}
 	else
@@ -404,6 +420,12 @@ static void handle_model(struct i2c_client *client,int load_or_verify) {
 
 	// Steps 10-12
 	cleanup_model_load(client);
+
+	//write back rcomp & alert register
+	tmp_reg = ( rcomp_reg << 8 ) | 0x1d;
+	GAUGE_INFO("write back max17058_RCOMP_REG value= 0x%04x\n", tmp_reg);
+	max17058_write_reg(client, max17058_RCOMP_REG, tmp_reg);
+	msleep(150);
 }
 
 static int max17058_get_temp(struct i2c_client *client)
@@ -438,17 +460,22 @@ static void update_rcomp(struct i2c_client *client)
 	int NewRCOMP;
 	u16 cfg=0;
 	u8 temp=0;
+	int rcomp=0;
 
+	if (smb1357_get_charging_status() == POWER_SUPPLY_STATUS_CHARGING)
+		rcomp = INI_RCOMP_CHR;
+	else
+		rcomp = INI_RCOMP;
 	temp = max17058_get_temp(client);
 	if(temp > 20) 
 	{
-		NewRCOMP = INI_RCOMP + ((temp - 20) * TempCoHot)/INI_RCOMP_FACTOR/1000;
+		NewRCOMP = rcomp + ((temp - 20) * TempCoHot)/INI_RCOMP_FACTOR/1000;
 	}else if(temp <20) 
 	{
-		NewRCOMP = INI_RCOMP +  ((temp - 20) * TempCoCold)/INI_RCOMP_FACTOR/1000;
+		NewRCOMP = rcomp +  ((temp - 20) * TempCoCold)/INI_RCOMP_FACTOR/1000;
 	}else 
 	{
-		NewRCOMP = INI_RCOMP;
+		NewRCOMP = rcomp;
 	}
 	
 	if(NewRCOMP > 0xFF)
@@ -458,7 +485,7 @@ static void update_rcomp(struct i2c_client *client)
 	{
 		NewRCOMP = 0;
 	}	
-	cfg=(NewRCOMP<<8)|0x1c;//soc alert:4%   
+	cfg=(NewRCOMP<<8)|((max17058_read_reg(client, max17058_RCOMP_REG) & 0xFF00) >> 8);
 	max17058_write_reg(client, max17058_RCOMP_REG, cfg);
 	msleep(150);
 }
@@ -489,10 +516,10 @@ static int max17058_get_property(struct power_supply *psy,
 	return 0;
 }
 #endif
-static void max17058_reset(struct i2c_client *client)
-{
-	max17058_write_reg(client, max17058_CMD_REG, max17058_POR_CMD);
-}
+//static void max17058_reset(struct i2c_client *client)
+//{
+//	max17058_write_reg(client, max17058_CMD_REG, max17058_POR_CMD);
+//}
 
 static void max17058_get_vcell(struct i2c_client *client)
 {
@@ -510,28 +537,27 @@ static void max17058_get_vcell(struct i2c_client *client)
 static void max17058_get_soc(struct i2c_client *client)
 {
 	struct max17058_chip *chip = i2c_get_clientdata(client);
-	u16 fg_soc = 0;
-	u8 soc_count = 0;
+	u16 fg_soc = 0, temp_soc=0;
 
+	mutex_lock(&chip->lock);
 	fg_soc = max17058_read_reg(client, max17058_SOC_REG);
 	if(fg_soc < 0){
 		GAUGE_ERR("%s failed to get soc\n", __func__);
 	}
 
-	chip->soc = ((u16)(fg_soc & 0xFF)<<8) + ((u16)(fg_soc & 0xFF00)>>8);
-	GAUGE_INFO("%s: chip->soc = %d, fg_soc = %d\n", __func__, chip->soc, fg_soc);
+	temp_soc = ((u16)(fg_soc & 0xFF)<<8) + ((u16)(fg_soc & 0xFF00)>>8);
+	GAUGE_INFO("%s: temp_soc = %d, fg_soc = %d\n", __func__, temp_soc, fg_soc);
 
 	if(INI_BITS == 19) {
-	    chip->soc = chip->soc/512;
+	    chip->soc = temp_soc/512;
 	}else if(INI_BITS == 18){
-	    chip->soc = chip->soc/256;
+		temp_soc += 128;
+	    chip->soc = temp_soc/256;
 	}
-
-	if(chip->soc>100)	chip->soc = 100;
-	if((soc_count++)%5 == 0){
-	    soc_count = 0;
-	    GAUGE_INFO("%s: Get SOC = %d\n", __func__, chip->soc);
-	}
+	if (chip->soc>100)
+		chip->soc = 100;
+	GAUGE_INFO("%s: Get final SOC = %d\n", __func__, chip->soc);
+	mutex_unlock(&chip->lock);
 }
 
 #ifdef MAX17058_REG_POWERSUPPLY
@@ -570,12 +596,13 @@ static void max17058_get_status(struct i2c_client *client)
 
 int max17058_read_percentage(void)
 {
-	int soc=0;
-
 	//GAUGE_INFO("%s start\n", __func__);
 	max17058_get_soc(g_max17058_chip->client);
-	soc = g_max17058_chip->soc;
-	return soc;
+	g_soc = g_max17058_chip->soc;
+	//GAUGE_INFO("%s ori soc=%d, final soc=%d\n", __func__, g_max17058_chip->soc, g_soc);
+	if (g_soc>100)
+		g_soc = 100;
+	return g_soc;
 }
 int max17058_read_current(void)
 {
@@ -601,11 +628,20 @@ int max17058_read_temp(void)
 	ret = pmic_get_battery_pack_temp(&temp);
 	//GAUGE_INFO("%s, ret = %d, temp = %d\n", __func__, ret, temp);
 	if(ret<0) {
+		GAUGE_ERR("%s, error when reading temp with ret = %d, set temp to 25\n", __func__, ret);
 		return 250;
 	} else {
 		g_temp = temp;
 		return temp*10;
 	}
+}
+int max17058_read_fcc(void)
+{
+	return 3000;
+}
+int max17058_read_rm(void)
+{
+	return 3000 * g_soc / 100;
 }
 
 static void max17058_work(struct work_struct *work)
@@ -631,6 +667,44 @@ static void max17058_work(struct work_struct *work)
 	schedule_delayed_work(&chip->work, max17058_DELAY);
 }
 
+/****Add battery status proc file+++*****/
+static struct proc_dir_entry *battery_status_proc_file;
+static int battery_status_proc_read(struct seq_file *buf, void *v)
+{
+	seq_printf(buf, "FCC=%d(mAh),RM=%d(mAh),TEMP=%d(C),VOLT=%d(mV)\n",
+		max17058_read_fcc(),
+		max17058_read_rm(),
+		max17058_read_temp()/10,
+		max17058_read_volt()
+	);
+	return 0;
+}
+
+static int battery_status_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, battery_status_proc_read, NULL);
+}
+
+
+static struct file_operations battery_status_proc_ops = {
+	.open = battery_status_proc_open,
+	.read = seq_read,
+	.release = single_release,
+};
+
+static void create_battery_status_proc_file(void)
+{
+    GAUGE_INFO("create_battery_status_proc_file\n");
+    battery_status_proc_file = proc_create("battery_soh", 0444,NULL, &battery_status_proc_ops);
+    if(battery_status_proc_file){
+        GAUGE_INFO("create battery_status_proc_file sucessed!\n");
+    }else{
+		GAUGE_INFO("create battery_status_proc_file failed!\n");
+    }
+}
+/****Add battery status proc file---*****/
+
+
 //static void max17058_handle_work(struct work_struct *work)
 //{
 //	struct max17058_chip *chip;
@@ -644,7 +718,11 @@ static void max17058_work(struct work_struct *work)
 
 static ssize_t batt_switch_name(struct switch_dev *sdev, char *buf)
 {
-	return sprintf(buf, "%s\n", "Z2CP3 00010001");
+	u16 version = (max17058_read_reg(g_max17058_chip->client, max17058_RCOMP_REG)>>8);
+	if ((version==0x001d)||(version==0x003d))
+		return sprintf(buf, "%s\n", "Z2CP3 20151019");
+	else
+		return sprintf(buf, "%s\n", "Z2CP3 00010001");
 }
 
 #ifdef MAX17058_REG_POWERSUPPLY
@@ -660,6 +738,7 @@ static int max17058_probe(struct i2c_client *client,
 {
 	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);			
 	struct max17058_chip *chip;
+	u16 rcomp_reg=0;
 	int ret;
 	u32 test_major_flag=0;
 	struct asus_bat_config bat_cfg;
@@ -709,19 +788,25 @@ static int max17058_probe(struct i2c_client *client,
 		GAUGE_ERR("asus_battery_init fail\n");
 
 	max17058_get_version(client);
-	max17058_write_reg(client, max17058_RCOMP_REG, 0x8A1C);
+	rcomp_reg = (0x8A<<8)|((max17058_read_reg(client, max17058_RCOMP_REG) & 0xFF00)>>8);
+	max17058_write_reg(client, max17058_RCOMP_REG, rcomp_reg);
 	handle_model(client, LOAD_MODEL);
 
   	g_max17058_chip = chip;
+	/* initial mutex */
+	mutex_init(&chip->lock);
 	INIT_DELAYED_WORK(&chip->work, max17058_work);
 	//INIT_DELAYED_WORK(&chip->hand_work, max17058_handle_work);
-	schedule_delayed_work(&chip->work, 0);
+	schedule_delayed_work(&chip->work, 5*HZ);
 	//schedule_delayed_work(&chip->hand_work, 0);
 
 	max17058_tbl.read_percentage = max17058_read_percentage;
 	max17058_tbl.read_current = max17058_read_current;
 	max17058_tbl.read_volt = max17058_read_volt;
 	max17058_tbl.read_temp = max17058_read_temp;
+	max17058_tbl.read_fcc = max17058_read_fcc;
+	max17058_tbl.read_rm = max17058_read_rm;
+	max17058_tbl.read_soh = NULL;
 
 	ret = asus_register_power_supply(&client->dev, &max17058_tbl);
 	if (ret)
@@ -732,6 +817,8 @@ static int max17058_probe(struct i2c_client *client,
 	max17058_batt_dev.print_name = batt_switch_name;
 	if (switch_dev_register(&max17058_batt_dev) < 0)
 		GAUGE_ERR("%s: fail to register battery switch\n", __func__);
+	//print battery status in proc/battery_soh
+	create_battery_status_proc_file();
 
 	GAUGE_INFO("%s ---\n", __func__);
 	return 0;
@@ -799,11 +886,11 @@ static struct i2c_driver max17058_i2c_driver = {
 };
 //module_i2c_driver(max17058_i2c_driver);
 
-static struct i2c_board_info max17058_board_info[] = {
-	{
-		I2C_BOARD_INFO("max17058", 0x36),
-	},
-};
+//static struct i2c_board_info max17058_board_info[] = {
+//	{
+//		I2C_BOARD_INFO("max17058", 0x36),
+//	},
+//};
 
 static int __init max17058_init(void)
 {

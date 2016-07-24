@@ -51,7 +51,11 @@ static struct mid_vibra_pdata asus_vibra_pci_data = {
 	.alt_fn = 0,
 	.ext_drv = 0,
 	.name = "drv3102",
+#ifdef CONFIG_ZS550ML
+	.use_gpio_en = true,
+#else
 	.use_gpio_en = false,
+#endif
 };
 
 
@@ -96,6 +100,10 @@ static struct mid_vibra_pdata *get_vibra_platform_data(struct pci_dev *pdev)
 		break;
 #else
 		pdata = &asus_vibra_pci_data;
+#ifdef CONFIG_ZS550ML
+		pdata->gpio_en = get_gpio_by_name("VIB_EN");
+		pdata->gpio_pwm = get_gpio_by_name("VIB_PWM");
+#endif
 #endif
 	default:
 		break;

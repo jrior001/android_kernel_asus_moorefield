@@ -103,6 +103,12 @@ static int lm3642_chip_init(struct lm3642_chip_data *chip)
 				 pdata->tx_pin);
 	if (ret < 0)
 		dev_err(chip->dev, "Failed to update REG_ENABLE Register\n");
+
+	/* set or clear ivfm register */
+	ret = regmap_update_bits(chip->regmap, REG_IVFM_MODE,
+					 UVLO_EN_MASK << UVLO_EN_SHIFT, pdata->uvlo);
+	if (ret < 0)
+		dev_err(chip->dev, "Failed to update REG_IVFM_MODE Register\n");
 	return ret;
 }
 
@@ -182,7 +188,7 @@ static ssize_t lm3642_torch_pin_store(struct device *dev,
 	ssize_t ret;
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	struct lm3642_chip_data *chip =
-	    container_of(led_cdev, struct lm3642_chip_data, cdev_indicator);
+	    container_of(led_cdev, struct lm3642_chip_data, cdev_torch);
 	unsigned int state;
 
 	ret = kstrtouint(buf, 10, &state);
@@ -239,7 +245,7 @@ static ssize_t lm3642_strobe_pin_store(struct device *dev,
 	ssize_t ret;
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	struct lm3642_chip_data *chip =
-	    container_of(led_cdev, struct lm3642_chip_data, cdev_indicator);
+	    container_of(led_cdev, struct lm3642_chip_data, cdev_flash);
 	unsigned int state;
 
 	ret = kstrtouint(buf, 10, &state);

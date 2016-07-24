@@ -136,12 +136,6 @@ void *merfld_wm8958_audio_platform_data(void *info)
 	return NULL;
 }
 
-/* TODO: should be removed once IFWI ready */
-/* static const struct i2c_board_info rt5647_board_info = {
-	I2C_BOARD_INFO("rt5647", 0x1b),
-};
-*/
-
 void *merfld_rt5647_audio_platform_data(void *info)
 {
 	struct platform_device *pdev;
@@ -188,10 +182,14 @@ void *merfld_rt5647_audio_platform_data(void *info)
 	register_rpmsg_service("rpmsg_mrfld_rt5647_audio", RPROC_SCU,
 				RP_MSIC_MRFLD_AUDIO);
 
-	// pr_info("%s Set Realtek I2C slave address to 0x1b!\n", __func__);
-	// i2c_register_board_info(1, &rt5647_board_info, 1);
 	return NULL;
 }
+
+/* TODO: should be removed once IFWI ready */
+/* static const struct i2c_board_info rt5647_board_info = {
+	I2C_BOARD_INFO("rt5647", 0x1b),
+};
+*/
 
 static struct  rt5647_custom_config custom_config = {
         .format = 6,
@@ -201,6 +199,8 @@ static struct  rt5647_custom_config custom_config = {
 
 void __init *rt5647_platform_data(void *info)
 {
-	struct rt5647_custom_config *cfg = &custom_config;
-	return cfg;
+        struct rt5647_custom_config *cfg = &custom_config;
+	// pr_info("%s Set Realtek I2C slave address to 0x1b!\n", __func__);
+	// i2c_register_board_info(1, &rt5647_board_info, 1);
+        return cfg;
 }

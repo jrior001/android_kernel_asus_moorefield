@@ -46,11 +46,9 @@
 #include <linux/reboot.h>
 #include "intel_mid_weak_decls.h"
 #include <asm/spid.h>
+#include <linux/spi/pxa2xx_spi.h>
 
-//+++++++++++++++++++++lynn 2014/10/27 FAC++++++++++++++++++++++
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
-//+++++++++++++++++++++lynn 2014/10/27 FAC++++++++++++++++++++++
+
 
 #define	SFI_SIG_OEM0	"OEM0"
 #define MAX_IPCDEVS	24
@@ -72,15 +70,13 @@ static u32 sfi_mtimer_usage[SFI_MTMR_MAX_NUM];
 int sfi_mrtc_num;
 int sfi_mtimer_num;
 
-static int PROJECT_ID;
-static int HARDWARE_ID;
-static int PCB_ID;
-static int LCD_ID;
-#ifdef CONFIG_A500CG
-static int TP_ID;
-#endif
-static int RF_SKU_ID;
-static int SIM_ID;
+static int PROJECT_ID = 0;
+static int HARDWARE_ID = 0;
+static int PCB_ID = 0;
+static int LCD_ID = 0;
+static int RF_SKU_ID = 0;
+static int SIM_ID = 0;
+static int TP_ID = 0;
 
 struct sfi_rtc_table_entry sfi_mrtc_array[SFI_MRTC_MAX];
 EXPORT_SYMBOL_GPL(sfi_mrtc_array);
@@ -94,7 +90,6 @@ unsigned int sfi_get_watchdog_irq(void)
 	return watchdog_irq_num;
 }
 
-#ifdef CONFIG_A500CG
 static int __init sfi_parse_oemr(struct sfi_table_header *table)
 {
 	struct sfi_table_oemr *sb;
@@ -104,93 +99,31 @@ static int __init sfi_parse_oemr(struct sfi_table_header *table)
 	pentry = (struct sfi_oemr_table_entry *)sb->pentry;
 	HARDWARE_ID = pentry->hardware_id;
 	PROJECT_ID = pentry->project_id;
-	TP_ID = pentry->tp_id;
 	LCD_ID = pentry->lcd_id;
-        printk("Hardware ID = 0x%x, Project ID = 0x%x, TP ID = 0x%x, LCD_ID = 0x%x\n", HARDWARE_ID, PROJECT_ID, TP_ID, LCD_ID);
+	RF_SKU_ID = pentry->RF_SKU;
+	SIM_ID = pentry->sim_id;
+	TP_ID = pentry->tp_id;
 
-	switch (HARDWARE_ID) {
-	case HW_ID_EVB:
-		pr_info("Hardware VERSION = EVB\n");
-		break;
-	case HW_ID_SR:
-		pr_info("Hardware VERSION = SR\n");
-		break;
-	case HW_ID_ER:
-		pr_info("Hardware VERSION = ER\n");
-		break;
-	case HW_ID_PR:
-		pr_info("Hardware VERSION = PR\n");
-		break;
-	default:
-		pr_info("Hardware VERSION is not defined\n");
-		break;
+	printk("\nHardware ID = 0x%x, Project ID = 0x%x, LCD_ID = 0x%x, RF_SKU_ID = 0x%x\n",HARDWARE_ID, PROJECT_ID, LCD_ID,RF_SKU_ID);
+
+	if (PROJECT_ID == PROJ_ID_ZE551ML_ESE) {
+		PROJECT_ID = PROJ_ID_ZE551ML;
+		pr_info(" PROJECT_ID override to %x\n", PROJECT_ID);
 	}
-	PCB_ID = pentry->touch_id | pentry->Camera_2M << 1 | pentry->lcd_id << 2 | pentry->hardware_id << 3 | pentry->project_id << 6 | pentry->Camera_8M << 9 | pentry->tp_id << 10;
-	printk("PCB ID=%x\n", PCB_ID);
-#if 0
-	atd_pcb_id = pentry->hardware_id << 3 | pentry->project_id;
-	pr_info("ATD PCB ID=%d\n", atd_pcb_id);
-#endif
+
+	printk("MiniOS : %d\n", pentry->MiniOS);
+
+	PCB_ID = pentry->hardware_id << HARDWARE_ID_SHIFT |
+		pentry->project_id << PROJ_ID_SHIFT |
+		pentry->lcd_id << LCD_ID_SHIFT |
+		pentry->sim_id << SIM_ID_SHIFT |
+		pentry->CAM_vendor << CAM_ID_SHIFT |
+		pentry->RF_SKU << RF_SKU_ID_SHIFT ;
+	printk("PCB ID=%x\n",PCB_ID);
+
 	return 0;
 }
-#else
-static int __init sfi_parse_oemr(struct sfi_table_header *table)
-{
-	struct sfi_table_oemr *sb;
-	struct sfi_oemr_table_entry *pentry;
 
-	sb = (struct sfi_table_oemr *)table;
-	pentry = (struct sfi_oemr_table_entry *)sb->pentry;
-	HARDWARE_ID = pentry->hardware_id;
-	PROJECT_ID = pentry->project_id;
-	LCD_ID = pentry->lcd_id;
-        RF_SKU_ID = pentry->RF_SKU;
-	SIM_ID = pentry->sim_id;
-        printk("\nHardware ID = 0x%x, Project ID = 0x%x, LCD_ID = 0x%x, RF_SKU_ID = 0x%x\n",HARDWARE_ID, PROJECT_ID, LCD_ID,RF_SKU_ID);
-//<ASUS-Wade+>
-        if (PROJECT_ID == PROJ_ID_ZE551ML_ESE) {
-                PROJECT_ID = PROJ_ID_ZE551ML;
-                pr_info(" PROJECT_ID override to %x\n", PROJECT_ID);
-        }
-//<ASUS-Wade->
-	printk("MiniOS : %d\n", pentry->MiniOS);
-	switch (HARDWARE_ID) {
-		case HW_ID_EVB:
-			pr_info("Hardware VERSION = EVB\n");
-			break;
-		case HW_ID_SR1:
-			pr_info("Hardware VERSION = SR1\n");
-			break;
-		case HW_ID_SR2:
-			pr_info("Hardware VERSION = SR2\n");
-			break;
-		case HW_ID_ER:
-			pr_info("Hardware VERSION = ER\n");
-			break;
-		case HW_ID_PR:
-			pr_info("Hardware VERSION = PR\n");
-			break;
-		case HW_ID_MP:
-			pr_info("Hardware VERSION = MP\n");
-			break;
-		default:
-			pr_info("Hardware VERSION is not defined\n");
-		break;
-	}
-        //PCB_ID = pentry->hardware_id | pentry->project_id << 3 | pentry->lcd_id << 8 | pentry->sim_id << 10 |
-        //                 pentry->CAM_vendor << 11 | pentry->RF_SKU << 12;
-        PCB_ID = pentry->hardware_id << HARDWARE_ID_SHIFT |
-                 pentry->project_id << PROJ_ID_SHIFT |
-                 pentry->lcd_id << LCD_ID_SHIFT |
-                 pentry->sim_id << SIM_ID_SHIFT |
-		 pentry->CAM_vendor << CAM_ID_SHIFT |
-                 pentry->RF_SKU << RF_SKU_ID_SHIFT ;
-        printk("PCB ID=%x\n",PCB_ID);
-
-        return 0;
-}
-
-#endif
 
 /* parse all the mtimer info to a static mtimer array */
 int __init sfi_parse_mtmr(struct sfi_table_header *table)
@@ -490,6 +423,10 @@ static void __init sfi_handle_ipc_dev(struct sfi_device_table_entry *pentry,
 	intel_scu_device_register(pdev);
 }
 
+static struct pxa2xx_spi_chip spi_cs_info = {
+        .gpio_cs = 121,
+};
+
 static void __init sfi_handle_spi_dev(struct sfi_device_table_entry *pentry,
 					struct devs_id *dev)
 {
@@ -502,6 +439,15 @@ static void __init sfi_handle_spi_dev(struct sfi_device_table_entry *pentry,
 	spi_info.bus_num = pentry->host_num;
 	spi_info.chip_select = pentry->addr;
 	spi_info.max_speed_hz = pentry->max_freq;
+
+	if (!strcmp(spi_info.modalias, "fingerprint"))
+	{
+		spi_info.bus_num = 3;
+		spi_info.max_speed_hz = 12000000;
+		spi_info.mode = SPI_MODE_0;
+		spi_info.controller_data = &spi_cs_info;
+	}
+
 	pr_info("SPI bus=%d, name=%16.16s, irq=0x%2x, max_freq=%d, cs=%d\n",
 		spi_info.bus_num,
 		spi_info.modalias,
@@ -648,7 +594,7 @@ static int __init sfi_parse_devs(struct sfi_table_header *table)
 	for (i = 0; i < num; i++, pentry++) {
 		int irq = pentry->irq;
 
-        printk("List of devices, name = %s\n", pentry->name);
+		printk("List of devices, name = %s\n", pentry->name);
 		if (irq != (u8)0xff) { /* native RTE case */
 			/* these SPI2 devices are not exposed to system as PCI
 			 * devices, but they have separate RTE entry in IOAPIC
@@ -811,12 +757,6 @@ static int project_id;
 module_param(project_id, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(PROJ_VERSION, "PROJ_ID judgement");
 
-#ifdef CONFIG_A500CG
-static const struct i2c_board_info rt5647_board_info = {
-	I2C_BOARD_INFO("rt5647", 0x1b),
-};
-#endif
-
 int Read_PROJ_ID(void)
 {
 	pr_debug("PROJECT_ID = 0x%x\n", PROJECT_ID);
@@ -879,7 +819,6 @@ int Read_PCB_ID(void)
 }
 EXPORT_SYMBOL(Read_PCB_ID);
 
-#ifdef CONFIG_A500CG
 static int tp_id;
 module_param(tp_id, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(PCB_VERSION,
@@ -892,7 +831,6 @@ int Read_TP_ID(void)
 	return TP_ID;
 }
 EXPORT_SYMBOL(Read_TP_ID);
-#endif
 
 static int lcd_id;
 module_param(lcd_id, int, S_IRUGO | S_IWUSR);
@@ -906,39 +844,21 @@ int Read_LCD_ID(void)
 }
 EXPORT_SYMBOL(Read_LCD_ID);
 
-//+++++++++++++++++++++lynn 2014/10/11 FAC++++++++++++++++++++++
-#ifdef CONFIG_ASUS_FACTORY_MODE
-	struct proc_dir_entry *pcbid_entry = NULL;
+static int Camera_Status;
+module_param(Camera_Status, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(PCB_VERSION, "Camera Status ");
 
-	static int pcbid_status_proc_show(struct seq_file *m, void *v) {
-		if(!pcbid_entry)
-			return seq_printf(m, "-1\n");
-		else
-			return seq_printf(m, "0x%x \n",PCB_ID);
-	}
+int Get_Camera_Status(void)
+{
+	return Camera_Status;
+}
+EXPORT_SYMBOL(Get_Camera_Status);
 
-	static int pcbid_status_proc_open(struct inode *inode, struct file *file) {
-		return single_open(file, pcbid_status_proc_show, NULL);
-	}
-
-	static const struct file_operations pcbid_status_proc_fops = {
-		.owner = THIS_MODULE,
-		.open = pcbid_status_proc_open,
-		.read = seq_read,
-		.llseek = seq_lseek,
-		.release = single_release,
-	};
-
-	int create_asusproc_pcbid_status_entry( void )
-	{
-		pcbid_entry = proc_create("asus_pcbid_status", S_IWUGO| S_IRUGO, NULL,&pcbid_status_proc_fops);
-		if (!pcbid_entry)
-			return -ENOMEM;
-
-		return 0;
-	}
-#endif
-//---------------------lynn 2014/10/11 FAC----------------------
+void Set_Camera_Status(int status)
+{
+	Camera_Status = status;
+}
+EXPORT_SYMBOL(Set_Camera_Status);
 
 //Ben_modified
 static int boot_mode;
@@ -981,7 +901,7 @@ int Read_Boot_Mode(void){
         printk("[SFI][ANDROIDBOOTCHECK]READ_BOOT_MODE called, but boot_mode is not set, return 0");
         return 0;
     }
-    printk("[SFI][ANDROIDBOOTCHECK]READ_BOOT_MODE called, mode=%d", boot_mode);
+    printk("[SFI][ANDROIDBOOTCHECK]READ_BOOT_MODE called, mode=%d\n", boot_mode);
     return boot_mode;
 }
 
@@ -1003,21 +923,9 @@ static int __init intel_mid_platform_init(void)
 	Read_HW_ID();
 	Read_PCB_ID();
 	Read_LCD_ID();
-        Read_SIM_ID();
-#ifndef CONFIG_A500CG
-        Read_RF_SKU_ID();
-#endif
-#ifdef CONFIG_A500CG
-	pr_info("%s Set Realtek I2C slave address to 0x1B!\n", __func__);
-	i2c_register_board_info(1, &rt5647_board_info, 1);
-#endif
-
-//+++++++++++++++++++++lynn 2014/10/27 FAC++++++++++++++++++++++
-#ifdef CONFIG_ASUS_FACTORY_MODE
-	if(create_asusproc_pcbid_status_entry( ))
-		printk("[%s] : ERROR to create pcbid proc entry\n",__func__);
-#endif
-//---------------------lynn 2014/10/27 FAC----------------------
+	Read_SIM_ID();
+	Read_TP_ID();
+	Read_RF_SKU_ID();
 
 	return 0;
 }

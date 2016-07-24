@@ -32,6 +32,7 @@
 #include <linux/firmware.h>
 #include <linux/pm_runtime.h>
 #include <linux/pm_qos.h>
+#include <linux/reboot.h>
 #include <asm/platform_byt_audio.h>
 #include <asm/platform_sst.h>
 #include <acpi/acpi_bus.h>
@@ -493,6 +494,11 @@ static int sst_platform_get_resources(const char *hid,
 	}
 }
 
+static struct notifier_block sst_reboot_notifier_block = {
+	.notifier_call = sst_reboot_callback,
+	.priority = 0,
+};
+
 int sst_acpi_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -537,6 +543,7 @@ int sst_acpi_probe(struct platform_device *pdev)
 
 	sst_init_locks(ctx);
 
+	ctx->reboot_notify = 0;
 	ctx->stream_cnt = 0;
 	ctx->fw_in_mem = NULL;
 	ctx->use_dma = 1;
@@ -621,6 +628,7 @@ int sst_acpi_probe(struct platform_device *pdev)
 	pm_runtime_enable(dev);
 	register_sst(dev);
 	sst_debugfs_init(ctx);
+	register_reboot_notifier(&sst_reboot_notifier_block);
 
 	if (ctx->pdata->start_recovery_timer) {
 		ret = sst_recovery_init(ctx);
@@ -663,6 +671,7 @@ int sst_acpi_remove(struct platform_device *pdev)
 	sst_debugfs_exit(ctx);
 	pm_runtime_get_noresume(ctx->dev);
 	pm_runtime_disable(ctx->dev);
+	unregister_reboot_notifier(&sst_reboot_notifier_block);
 	unregister_sst(ctx->dev);
 	sst_set_fw_state_locked(ctx, SST_SHUTDOWN);
 	misc_deregister(&lpe_ctrl);

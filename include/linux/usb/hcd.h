@@ -93,7 +93,7 @@ struct usb_hcd {
 	/*
 	 * hardware info/state
 	 */
-	const struct hc_driver	*driver;	/* hw-specific hooks */
+	struct hc_driver	*driver;	/* hw-specific hooks */
 
 	/*
 	 * OTG and some Host controllers need software interaction with phys;
@@ -267,6 +267,8 @@ struct hc_driver {
 				struct urb *urb, gfp_t mem_flags);
 	int	(*urb_dequeue)(struct usb_hcd *hcd,
 				struct urb *urb, int status);
+	/* log URB events */
+	int	(*urb_log_complete)(struct urb *urb, int dir);
 
 	/*
 	 * (optional) these hooks allow an HCD to override the default DMA
@@ -436,6 +438,7 @@ extern const struct dev_pm_ops usb_hcd_pci_pm_ops;
 #endif /* CONFIG_PCI */
 
 /* pci-ish (pdev null is ok) buffer alloc/mapping support */
+void usb_init_pool_max(void);
 int hcd_buffer_create(struct usb_hcd *hcd);
 void hcd_buffer_destroy(struct usb_hcd *hcd);
 

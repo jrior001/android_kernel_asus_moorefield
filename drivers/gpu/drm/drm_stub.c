@@ -90,6 +90,24 @@ int drm_err(const char *func, const char *format, ...)
 }
 EXPORT_SYMBOL(drm_err);
 
+int drm_err_ratelimited(const char *func, const char *format, ...)
+{
+	struct va_format vaf;
+	va_list args;
+
+	va_start(args, format);
+
+	vaf.fmt = format;
+	vaf.va = &args;
+
+	printk_ratelimited(KERN_ERR "[" DRM_NAME ":%s] *ERROR* %pV", func, &vaf);
+
+	va_end(args);
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_err_ratelimited);
+
 void drm_ut_debug_printk(unsigned int request_level,
 			 const char *prefix,
 			 const char *function_name,

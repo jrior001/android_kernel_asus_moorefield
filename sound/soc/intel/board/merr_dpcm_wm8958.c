@@ -30,6 +30,7 @@
 #include <linux/async.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
+#include <linux/reboot.h>
 #include <asm/intel_mid_rpmsg.h>
 #include <asm/platform_mrfld_audio.h>
 #include <asm/intel_sst_mrfld.h>
@@ -60,6 +61,21 @@
 #define MERR_OSC_CLKOUT_CTRL0_REG_ADDR  0xFF00BC04
 /* Size of osc clock register */
 #define MERR_OSC_CLKOUT_CTRL0_REG_SIZE  4
+
+static struct platform_device *mrfld_pdev;
+
+int mrfld_reboot_callback(struct notifier_block *nfb, unsigned long event, void *data)
+{
+	pr_info("%s triggered\n", __func__);
+	snd_soc_suspend(&mrfld_pdev->dev);
+	return NOTIFY_OK;
+}
+
+static struct notifier_block mrfld_reboot_notifier_block = {
+	.notifier_call = mrfld_reboot_callback,
+	.priority = 1,
+};
+
 
 struct mrfld_8958_mc_private {
 	struct snd_soc_jack jack;
@@ -106,6 +122,7 @@ static const struct snd_soc_pcm_stream mrfld_wm8958_ssp1_bt_a2dp = {
 	.channels_min = 2,
 	.channels_max = 2,
 };
+
 
 /* set_osc_clk0-	enable/disables the osc clock0
  * addr:		address of the register to write to
@@ -1069,6 +1086,7 @@ static int snd_mrfld_8958_mc_probe(struct platform_device *pdev)
 	}
 
 	/* register the soc card */
+	mrfld_pdev = pdev;
 	snd_soc_card_mrfld.dev = &pdev->dev;
 	snd_soc_card_set_drvdata(&snd_soc_card_mrfld, drv);
 	ret_val = snd_soc_register_card(&snd_soc_card_mrfld);
@@ -1077,6 +1095,7 @@ static int snd_mrfld_8958_mc_probe(struct platform_device *pdev)
 		goto unalloc;
 	}
 	platform_set_drvdata(pdev, &snd_soc_card_mrfld);
+	register_reboot_notifier(&mrfld_reboot_notifier_block);
 	pr_info("%s successful\n", __func__);
 	return ret_val;
 
@@ -1091,6 +1110,7 @@ static int snd_mrfld_8958_mc_remove(struct platform_device *pdev)
 	struct mrfld_8958_mc_private *drv = snd_soc_card_get_drvdata(soc_card);
 
 	pr_debug("In %s\n", __func__);
+	unregister_reboot_notifier(&mrfld_reboot_notifier_block);
 	kfree(drv);
 	snd_soc_card_set_drvdata(soc_card, NULL);
 	snd_soc_unregister_card(soc_card);

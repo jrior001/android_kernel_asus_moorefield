@@ -114,7 +114,7 @@ bool regmap_readable(struct regmap *map, unsigned int reg)
 
 bool regmap_volatile(struct regmap *map, unsigned int reg)
 {
-	if (!regmap_readable(map, reg))
+	if (!map->format.format_write && !regmap_readable(map, reg))
 		return false;
 
 	if (map->volatile_reg)
@@ -1177,7 +1177,7 @@ int _regmap_write(struct regmap *map, unsigned int reg,
 	}
 
 #ifdef LOG_DEVICE
-	if (strcmp(dev_name(map->dev), LOG_DEVICE) == 0)
+	if (map->dev && strcmp(dev_name(map->dev), LOG_DEVICE) == 0)
 		dev_info(map->dev, "%x <= %x\n", reg, val);
 #endif
 
@@ -1471,15 +1471,15 @@ static int _regmap_raw_read(struct regmap *map, unsigned int reg, void *val,
 	map->format.format_reg(map->work_buf, reg, map->reg_shift);
 
 	/*
-	 * Some buses or devices flag reads by setting the high bits in the
-	 * register addresss; since it's always the high bits for all
-	 * current formats we can do this here rather than in
-	 * formatting.  This may break if we get interesting formats.
-	 */
+	* Some buses or devices flag reads by setting the high bits in the
+	* register addresss; since it's always the high bits for all
+	* current formats we can do this here rather than in
+	* formatting.  This may break if we get interesting formats.
+	*/
 	u8[0] |= map->read_flag_mask;
 
 	trace_regmap_hw_read_start(map->dev, reg,
-				   val_len / map->format.val_bytes);
+		val_len / map->format.val_bytes);
 
 	ret = map->bus->read(map->bus_context, map->work_buf,
 			     map->format.reg_bytes + map->format.pad_bytes,
@@ -1501,6 +1501,7 @@ static int _regmap_bus_read(void *context, unsigned int reg,
 		return -EINVAL;
 
 	ret = _regmap_raw_read(map, reg, map->work_buf, map->format.val_bytes);
+
 	if (ret == 0)
 		*val = map->format.parse_val(map->work_buf);
 
@@ -1527,7 +1528,7 @@ static int _regmap_read(struct regmap *map, unsigned int reg,
 	ret = map->reg_read(context, reg, val);
 	if (ret == 0) {
 #ifdef LOG_DEVICE
-		if (strcmp(dev_name(map->dev), LOG_DEVICE) == 0)
+		if (map->dev && strcmp(dev_name(map->dev), LOG_DEVICE) == 0)
 			dev_info(map->dev, "%x => %x\n", reg, *val);
 #endif
 
@@ -1690,8 +1691,8 @@ static int _regmap_update_bits(struct regmap *map, unsigned int reg,
 {
 	int ret;
 	unsigned int tmp, orig;
-
 	ret = _regmap_read(map, reg, &orig);
+
 	if (ret != 0)
 		return ret;
 
@@ -1704,7 +1705,6 @@ static int _regmap_update_bits(struct regmap *map, unsigned int reg,
 	} else {
 		*change = false;
 	}
-
 	return ret;
 }
 

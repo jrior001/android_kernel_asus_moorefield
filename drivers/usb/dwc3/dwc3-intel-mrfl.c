@@ -21,6 +21,7 @@
 #include "otg.h"
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
+#include <asm/spid.h>
 
 #define VERSION "2.10a"
 
@@ -53,6 +54,12 @@ static int is_basin_cove(struct dwc_otg2 *otg)
 	data = (struct intel_dwc_otg_pdata *)otg->otg_data;
 
 	return data->pmic_type == BASIN_COVE;
+}
+
+static int is_btns(struct dwc_otg2 *otg)
+{
+	return INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, PRO) ||
+				INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, ENG);
 }
 
 static int is_utmi_phy(struct dwc_otg2 *otg)
@@ -415,7 +422,12 @@ static int enable_usb_phy(struct dwc_otg2 *otg, bool on_off)
 		return -EINVAL;
 
 	data = (struct intel_dwc_otg_pdata *)otg->otg_data;
-	if (data->using_vusbphy)
+	if (is_btns(otg)) {
+		if (on_off)
+			ret = intel_scu_ipc_update_register(0x13, 0xFF, BIT(5));
+		else
+			ret = intel_scu_ipc_update_register(0x13, 0x00, BIT(5));
+	} else if (data->using_vusbphy)
 		ret = control_usb_phy_power(PMIC_VLDOCNT, on_off);
 	else
 		ret = control_usb_phy_power(PMIC_USBPHYCTRL, on_off);
@@ -467,10 +479,14 @@ int dwc3_intel_platform_init(struct dwc_otg2 *otg)
 	/* Get usb2 phy type */
 	otg->usb2_phy.intf = data->usb2_phy_type;
 
-	/* Turn off VUSBPHY if it haven't used by USB2 PHY.
-	 * Otherwise, it will consume ~2.6mA(on VSYS) on MOFD.
-	 */
-	if (!data->using_vusbphy) {
+	if (is_btns(otg)) {
+		otg_info(otg, "De-assert USBRST# to enable PHY\n");
+
+		gpio_set_value(data->gpio_cs, 1);
+	} else if (!data->using_vusbphy) {
+		/* Turn off VUSBPHY if it haven't used by USB2 PHY.
+		 * Otherwise, it will consume ~2.6mA(on VSYS) on MOFD.
+		 */
 		retval = control_usb_phy_power(PMIC_VLDOCNT, false);
 		if (retval)
 			otg_err(otg, "Fail to turn off VUSBPHY\n");
@@ -508,14 +524,14 @@ int dwc3_intel_platform_init(struct dwc_otg2 *otg)
 			otg_err(otg, "Fail to de-assert USBRST#\n");
 
 		/* Optimize unused GPIO power consumption */
-		for (i = 0; i < ULPI_PHY_GP_NUM; i++) {
+		/*for (i = 0; i < ULPI_PHY_GP_NUM; i++) {
 			retval = ulpi_phy_gpio_init(ulpi_phy_gp[i].num, ulpi_phy_gp[i].label);
 			if (retval < 0) {
 				otg_err(otg, "ULPI PHY GPIO init fail\n");
 				retval = -ENODEV;
 				break;
 			}
-		}
+		}*/
 	}
 
 	/* Don't let phy go to suspend mode, which
@@ -650,7 +666,10 @@ done:
 
 int dwc3_intel_get_id(struct dwc_otg2 *otg)
 {
-	if (is_basin_cove(otg))
+	/* No host mode support on btns */
+	if (is_btns(otg))
+		return RID_FLOAT;
+	else if (is_basin_cove(otg))
 		return basin_cove_get_id(otg);
 	else
 		return shady_cove_get_id(otg);
@@ -849,6 +868,7 @@ static enum power_supply_charger_cable_type
 	unsigned long timeout, interval;
 	enum power_supply_charger_cable_type type =
 		POWER_SUPPLY_CHARGER_TYPE_NONE;
+	struct intel_dwc_otg_pdata *data = (struct intel_dwc_otg_pdata *)otg->otg_data;
 
 	if (!charger_detect_enable(otg))
 		return cap_record.chrg_type;
@@ -867,7 +887,13 @@ static enum power_supply_charger_cable_type
 	 */
 	enable_usb_phy(otg, true);
 
-	if (is_basin_cove(otg)) {
+	if (is_btns(otg)) {
+		if (!gpio_get_value(data->gpio_typec_highicc)) {
+			otg_err(otg, "Reading gpio_get_value of gpio_typeC_highIcc is 0\n");
+			type = POWER_SUPPLY_CHARGER_TYPE_USB_CDP;
+			goto cleanup;
+		}
+	} else if (is_basin_cove(otg)) {
 		/* Enable ACA:
 		 * Enable ACA & ID detection logic.
 		 */
@@ -1143,7 +1169,7 @@ static int dwc3_intel_handle_notification(struct notifier_block *nb,
 		state = NOTIFY_OK;
 		break;
 	default:
-		otg_dbg(otg, "DWC OTG Notify unknow notify message\n");
+		otg_dbg(otg, "DWC OTG Notify unknown notify message\n");
 		state = NOTIFY_DONE;
 	}
 
@@ -1233,7 +1259,7 @@ int dwc3_intel_suspend(struct dwc_otg2 *otg)
 
 		ret = otg->suspend_host(hcd);
 		if (ret) {
-			otg_err(otg, "dwc3-host enter suspend faield: %d\n", ret);
+			otg_err(otg, "dwc3-host enter suspend failed: %d\n", ret);
 			return ret;
 		}
 	}

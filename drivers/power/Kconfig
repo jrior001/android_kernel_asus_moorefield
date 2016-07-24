@@ -206,6 +206,12 @@ config BATTERY_BQ27X00_PLATFORM
 	help
 	  Say Y here to enable support for batteries with BQ27000 (HDQ) chips.
 
+config BATTERY_BQ27742
+	bool "BQ27742 support"
+	depends on I2C
+	help
+	  Say Y here to enable support for batteries with BQ27742 (I2C) chips.
+
 config BATTERY_DA9030
 	tristate "DA9030 battery driver"
 	depends on PMIC_DA903X
@@ -373,6 +379,13 @@ config CHARGER_SMB347
 	tristate "Summit Microelectronics SMB347 Battery Charger"
 	depends on I2C
 	select REGMAP_I2C
+	help
+	  Say Y to include support for Summit Microelectronics SMB347
+	  Battery Charger.
+
+config CHARGER_SMB1351
+	tristate "Summit Microelectronics SMB1351 Battery Charger"
+	depends on I2C
 	help
 	  Say Y to include support for Summit Microelectronics SMB347
 	  Battery Charger.

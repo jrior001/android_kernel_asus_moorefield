@@ -78,20 +78,20 @@ static int bounds_check(struct device *dev, uint64_t val,
 
 static void print_pll(struct device *dev, struct smiapp_pll *pll)
 {
-	dev_dbg(dev, "pre_pll_clk_div\t%u\n",  pll->pre_pll_clk_div);
-	dev_dbg(dev, "pll_multiplier \t%u\n",  pll->pll_multiplier);
+	dev_dbg(dev, "pre_pll_clk_div\t%d\n",  pll->pre_pll_clk_div);
+	dev_dbg(dev, "pll_multiplier \t%d\n",  pll->pll_multiplier);
 	if (!(pll->flags & SMIAPP_PLL_FLAG_NO_OP_CLOCKS)) {
-		dev_dbg(dev, "op_sys_clk_div \t%u\n", pll->op_sys_clk_div);
-		dev_dbg(dev, "op_pix_clk_div \t%u\n", pll->op_pix_clk_div);
+		dev_dbg(dev, "op_sys_clk_div \t%d\n", pll->op_sys_clk_div);
+		dev_dbg(dev, "op_pix_clk_div \t%d\n", pll->op_pix_clk_div);
 	}
-	dev_dbg(dev, "vt_sys_clk_div \t%u\n",  pll->vt_sys_clk_div);
-	dev_dbg(dev, "vt_pix_clk_div \t%u\n",  pll->vt_pix_clk_div);
+	dev_dbg(dev, "vt_sys_clk_div \t%d\n",  pll->vt_sys_clk_div);
+	dev_dbg(dev, "vt_pix_clk_div \t%d\n",  pll->vt_pix_clk_div);
 
-	dev_dbg(dev, "ext_clk_freq_hz \t%u\n", pll->ext_clk_freq_hz);
-	dev_dbg(dev, "pll_ip_clk_freq_hz \t%llu\n", pll->pll_ip_clk_freq_hz);
-	dev_dbg(dev, "pll_op_clk_freq_hz \t%llu\n", pll->pll_op_clk_freq_hz);
+	dev_dbg(dev, "ext_clk_freq_hz \t%d\n", pll->ext_clk_freq_hz);
+	dev_dbg(dev, "pll_ip_clk_freq_hz \t%d\n", pll->pll_ip_clk_freq_hz);
+	dev_dbg(dev, "pll_op_clk_freq_hz \t%d\n", pll->pll_op_clk_freq_hz);
 	if (!(pll->flags & SMIAPP_PLL_FLAG_NO_OP_CLOCKS)) {
-		dev_dbg(dev, "op_sys_clk_freq_hz \t%llu\n",
+		dev_dbg(dev, "op_sys_clk_freq_hz \t%d\n",
 			pll->op_sys_clk_freq_hz);
 		dev_dbg(dev, "op_pix_clk_freq_hz \t%u\n",
 			pll->op_pix_clk_freq_hz);

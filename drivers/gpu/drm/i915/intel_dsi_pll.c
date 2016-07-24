@@ -65,33 +65,57 @@ struct dsi_clock_table dsi_clk_tbl[] = {
 		{1000, 80, 2},		/* dsi clock frequency in Mhz*/
 };
 
+/* To recalculate the pclk considering dual link and Burst mode */
+int intel_drrs_calc_pclk(struct intel_dsi *intel_dsi,
+		struct drm_display_mode *mode, u32 *pclk)
+{
+	int pkt_pixel_size;		/* in bits */
+
+	*pclk = mode->clock;
+
+	pkt_pixel_size = intel_get_bits_per_pixel(intel_dsi);
+	if (pkt_pixel_size < 0) {
+		DRM_ERROR("Unsupported pixel format\n");
+		return pkt_pixel_size;
+	}
+
+	/* In dual link mode each port needs half of pixel clock */
+	if (intel_dsi->dual_link)
+		adjust_pclk_for_dual_link(intel_dsi, mode, pclk);
+
+	/* Retaining the same Burst mode ratio for DRRS. Need to be tested */
+	if (intel_dsi->video_mode_type == DSI_VIDEO_BURST)
+		adjust_pclk_for_burst_mode(pclk, intel_dsi->burst_mode_ratio);
+
+	DRM_DEBUG_KMS("mode->clock : %d, pclk : %d\n", mode->clock, *pclk);
+	return 0;
+}
+
 /* Get DSI clock from pixel clock */
 int dsi_clk_from_pclk(struct intel_dsi *intel_dsi,
 		struct drm_display_mode *mode, u32 *dsi_clk) {
 	u32 dsi_bit_clock_hz;
-	u32 pkt_pixel_size;		/* in bits */
+	int pkt_pixel_size;		/* in bits */
 	struct drm_device *dev = intel_dsi->base.base.dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	int pclk;
+	u32 pclk;
+	int ret;
 
-	if (intel_dsi->pixel_format == VID_MODE_FORMAT_RGB888)
-		pkt_pixel_size = 24;
-	else if (intel_dsi->pixel_format == VID_MODE_FORMAT_RGB666_LOOSE)
-		pkt_pixel_size = 24;
-	else if (intel_dsi->pixel_format == VID_MODE_FORMAT_RGB666)
-		pkt_pixel_size = 18;
-	else if (intel_dsi->pixel_format == VID_MODE_FORMAT_RGB565)
-		pkt_pixel_size = 16;
-	else
-		return -ECHRNG;
+	pkt_pixel_size = intel_get_bits_per_pixel(intel_dsi);
+	if (pkt_pixel_size < 0) {
+		DRM_ERROR("Unsupported pixel format\n");
+		return pkt_pixel_size;
+	}
 
 	/* For Acer AUO B080XAT panel, use a fixed DSI data rate of 513 Mbps */
 	if (dev_priv->mipi_panel_id == MIPI_DSI_AUO_B080XAT_PANEL_ID) {
 		*dsi_clk = 513;
 		return 0;
 	}
-	pclk = intel_dsi->pclk;
-	DRM_DEBUG_DRIVER("intel_dsi->pclk = %d\n", pclk);
+
+	ret = intel_drrs_calc_pclk(intel_dsi, mode, &pclk);
+	if (ret < 0)
+		return ret;
 
 	/* DSI data rate = pixel clock * bits per pixel / lane count
 	   pixel clock is converted from KHz to Hz */
@@ -122,8 +146,8 @@ int dsi_15percent_formula(struct intel_dsi *intel_dsi,
 	return 0;
 }
 
-int get_dsi_clk(struct intel_dsi *intel_dsi, struct drm_display_mode *mode, \
-		u32 *dsi_clk)
+int intel_get_dsi_clk(struct intel_dsi *intel_dsi,
+		struct drm_display_mode *mode, u32 *dsi_clk)
 {
 
 	return dsi_clk_from_pclk(intel_dsi, mode, dsi_clk);
@@ -312,8 +336,13 @@ int intel_calculate_dsi_pll_mnp(struct intel_dsi *intel_dsi,
 		struct drm_display_mode *mode,
 			struct intel_dsi_mnp *intel_dsi_mnp, u32 dsi_clk)
 {
-	if (dsi_clk == 0)
-		get_dsi_clk(intel_dsi, mode, &dsi_clk);
+	int ret;
+
+	if (dsi_clk == 0) {
+		ret = intel_get_dsi_clk(intel_dsi, mode, &dsi_clk);
+		if (ret < 0)
+			return ret;
+	}
 
 	return dsi_calc_mnp(dsi_clk, intel_dsi_mnp);
 }
@@ -333,7 +362,7 @@ int intel_configure_dsi_pll(struct intel_dsi *intel_dsi,
 
 	ret = intel_calculate_dsi_pll_mnp(intel_dsi, mode,
 					&config->dsi_mnp, intel_dsi->dsi_clock_freq);
-	if (ret != 0)
+	if (ret < 0)
 		return ret;
 
 	/* In case of DRRS, Calculating the divider values for downclock_mode */
@@ -341,7 +370,7 @@ int intel_configure_dsi_pll(struct intel_dsi *intel_dsi,
 		dev_priv->drrs_state.type >= SEAMLESS_DRRS_SUPPORT) {
 		ret = intel_calculate_dsi_pll_mnp(intel_dsi,
 			intel_connector->panel.downclock_mode, &config->dsi_mnp2, 0);
-		if (ret != 0)
+		if (ret < 0)
 			return ret;
 	}
 

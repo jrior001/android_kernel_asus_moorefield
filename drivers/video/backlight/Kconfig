@@ -425,12 +425,6 @@ config BACKLIGHT_AS3711
 	  If you have an Austrian Microsystems AS3711 say Y to enable the
 	  backlight driver.
 
-config BACKLIGHT_RT4532
-	tristate "Backlight driver for RT4532"
-	depends on BACKLIGHT_CLASS_DEVICE && I2C
-	help
-	  This supports RT4532 backlight driver.
-
 endif # BACKLIGHT_CLASS_DEVICE
 
 endif # BACKLIGHT_LCD_SUPPORT

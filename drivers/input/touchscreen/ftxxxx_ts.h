@@ -28,10 +28,17 @@
 
 #define TOUCH_MAX_X	720
 #define TOUCH_MAX_Y	1280
+#ifdef CONFIG_ZS570ML
+#define FTXXXX_INT_PIN	49
+#define FTXXXX_INT_PIN_NAME	"ftxxxx-int"
+#define FTXXXX_RESET_PIN	191
+#define FTXXXX_RESET_PIN_NAME	"ftxxxx-reset"
+#else
 #define FTXXXX_INT_PIN	120
 #define FTXXXX_INT_PIN_NAME	"ftxxxx-int"
 #define FTXXXX_RESET_PIN	191
 #define FTXXXX_RESET_PIN_NAME	"ftxxxx-reset"
+#endif 
 
 #define FT_MAX_ID	0x0F
 #define FT_TOUCH_STEP	6

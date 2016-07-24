@@ -4110,8 +4110,6 @@ static int mmc_blk_rpmb_req_handle(struct mmc_ioc_rpmb_req *req)
 
 static int rpmb_agent(void *unused)
 {
-#define AGENT_TIMEOUT_MS (1000 * 60 * 5) /* 5 minutes */
-
 #define AUTH_DAT_WR_REQ 0x0003
 #define AUTH_DAT_RD_REQ 0x0004
 
@@ -4164,7 +4162,7 @@ static int rpmb_agent(void *unused)
 		ret = dx_sep_req_wait_for_request(RPMB_AGENT_ID,
 				in_buf, &in_buf_size);
 		if (ret) {
-			pr_err("WAIT FAILED %d\n", ret);
+			pr_err("RPMB WAIT FAILED %d\n", ret);
 			break;
 		}
 
@@ -4201,7 +4199,7 @@ static int rpmb_agent(void *unused)
 		memset(out_buf, 0, RPMB_FRAME_LENGTH);
 
 		if (req2emmc.type == AUTH_DAT_RD_REQ) {
-			pr_info("READ OPERATION RETURN\n");
+			pr_info("RPMB READ OPERATION RETURN\n");
 			memcpy(out_buf+RPMB_DATA_OFFSET,
 					req2emmc.data,  RPMB_DATA_LENGTH);
 			memcpy(out_buf+RPMB_NONCE_OFFSET,
@@ -4210,7 +4208,7 @@ static int rpmb_agent(void *unused)
 			out_buf[RPMB_BLKCNT_OFFSET]   = req2emmc.blk_cnt >> 8;
 			out_buf[RPMB_BLKCNT_OFFSET+1] = req2emmc.blk_cnt;
 		} else {
-			pr_info("WRITE OPERATION RETURN\n");
+			pr_info("RPMB WRITE OPERATION RETURN\n");
 			memcpy(&tmp, req2emmc.wc, RPMB_COUNTER_LENGTH);
 			tmp = cpu_to_be32(tmp);
 			memcpy(out_buf+RPMB_COUNTER_OFFSET,
@@ -4241,6 +4239,171 @@ static int rpmb_agent(void *unused)
 	return ret;
 }
 
+static int boot_partition_single_block_rw(bool read, char *partition,
+		u32 addr, u8 *data, u32 data_len)
+{
+	struct device *emmc_dev;
+
+	if (data_len != 512)
+		return -EFAULT;
+
+	emmc_dev = class_find_device(&block_class, NULL, partition, emmc_match);
+	if (!emmc_dev) {
+		pr_err("eMMC reg failed\n");
+		return -ENODEV;
+	}
+
+	return mmc_single_block_access(emmc_dev, read, addr, data, data_len);
+}
+
+static int sep_mmc_read(void *unused)
+{
+	enum mmc_part {
+		EMMC_NO_BOOT_ACCESS = 0x0,
+		EMMC_BOOT1_ACCESS   = 0x1,
+		EMMC_BOOT2_ACCESS   = 0x2,
+		EMMC_RPMB_ACCESS    = 0x3
+	};
+
+	struct sep_read_request {
+		enum mmc_part partition;
+		u32 blk_addr;
+	};
+
+	struct sep_read_response {
+		int response;
+		u8 data[512];
+	};
+
+	int ret = 0;
+	u32 max_buf_size = 0;
+	struct sep_read_request req = {0};
+	u32 request_len = sizeof(req);
+	struct sep_read_response resp = {0};
+
+	ret = dx_sep_req_register_agent(SEP_READ_AGENT_ID, &max_buf_size);
+	if (ret) {
+		pr_err("REG FAIL %d\n", ret);
+		return -EINVAL;
+	}
+
+	while (1) {
+		/* Block until called by SEP */
+		pr_info("SEP MMC READ BLOCKED\n");
+		ret = dx_sep_req_wait_for_request(SEP_READ_AGENT_ID,
+				(u8 *)&req, &request_len);
+		if (ret) {
+			pr_err("SEP MMC READ WAIT FAILED %d\n", ret);
+			break;
+		}
+
+		pr_info("SEP MMC READ UNBLOCKED\n");
+
+		switch (req.partition) {
+		case EMMC_BOOT1_ACCESS:
+			pr_info("SEP BOOT READ OPERATION\n");
+			resp.response = boot_partition_single_block_rw(true,
+					"mmcblk0boot0", req.blk_addr,
+					resp.data, 512);
+			break;
+
+		case EMMC_BOOT2_ACCESS:
+			pr_info("SEP BOOT READ OPERATION\n");
+			resp.response = boot_partition_single_block_rw(true,
+					"mmcblk0boot1", req.blk_addr,
+					resp.data, 512);
+			break;
+
+		default:
+			pr_err("NOT SUPPORTED\n");
+		}
+
+		/* Send response */
+		ret = dx_sep_req_send_response(SEP_READ_AGENT_ID,
+				(u8 *)&resp, sizeof(resp));
+		if (ret) {
+			pr_err("dx_sep_req_send_response fail %d", ret);
+			break;
+		}
+	}
+
+	return ret;
+}
+
+static int sep_mmc_write(void *unused)
+{
+	enum mmc_part {
+		EMMC_NO_BOOT_ACCESS = 0x0,
+		EMMC_BOOT1_ACCESS   = 0x1,
+		EMMC_BOOT2_ACCESS   = 0x2,
+		EMMC_RPMB_ACCESS    = 0x3
+	};
+
+	struct sep_write_request {
+		u32 blk_addr;
+		u8 data[512];
+		enum mmc_part partition;
+	};
+
+	struct sep_write_response {
+		int response;
+	};
+
+	int ret = 0;
+	u32 max_buf_size = 0;
+	struct sep_write_request req = {0};
+	struct sep_write_response resp = {0};
+	u32 req_len = sizeof(struct sep_write_request);
+
+	ret = dx_sep_req_register_agent(SEP_WRITE_AGENT_ID, &max_buf_size);
+	if (ret) {
+		pr_err("REG FAIL %d\n", ret);
+		return -EINVAL;
+	}
+
+	while (1) {
+		/* Block until called by SEP */
+		pr_info("SEP MMC WRITE BLOCKED\n");
+		ret = dx_sep_req_wait_for_request(SEP_WRITE_AGENT_ID, (u8 *)&req,
+				&req_len);
+		if (ret) {
+			pr_err("SEP MMC WRITE WAIT FAILED %d\n", ret);
+			break;
+		}
+
+		pr_info("SEP MMC WRITE UNBLOCKED\n");
+
+		switch (req.partition) {
+		case EMMC_BOOT1_ACCESS:
+			pr_info("SEP BOOT WRITE OPERATION\n");
+			resp.response = boot_partition_single_block_rw(false,
+					"mmcblk0boot0", req.blk_addr, req.data,
+					512);
+			break;
+
+		case EMMC_BOOT2_ACCESS:
+			pr_info("SEP BOOT WRITE OPERATION\n");
+			resp.response = boot_partition_single_block_rw(false,
+					"mmcblk0boot1", req.blk_addr, req.data,
+					512);
+			break;
+
+		default:
+			pr_err("NOT SUPPORTED\n");
+		}
+
+		/* Send response */
+		ret = dx_sep_req_send_response(SEP_WRITE_AGENT_ID, (u8 *)&resp,
+				sizeof(resp));
+		if (ret) {
+			pr_err("dx_sep_req_send_response fail %d", ret);
+			break;
+		}
+	}
+
+	return ret;
+}
+
 static int sep_setup(struct device *dev,
 		     const struct resource *regs_res,
 		     struct resource *r_irq)
@@ -4252,7 +4415,11 @@ static int sep_setup(struct device *dev,
 	int i, init_flag = INIT_FW_FLAG;
 	/* Create kernel thread for RPMB agent */
 	static struct task_struct *rpmb_thread;
-	char thread_name[] = "rpmb_agent";
+	char rpmb_agent_thread_name[] = "rpmb_agent";
+	static struct task_struct *sep_read_thread;
+	char sep_agent_r_thread_name[] = "sep_agent_read";
+	static struct task_struct *sep_write_thread;
+	char sep_agent_w_thread_name[] = "sep_agent_write";
 	int sess_id = 0;
 	enum dxdi_sep_module ret_origin;
 	struct sep_client_ctx *sctx = NULL;
@@ -4536,12 +4703,28 @@ static int sep_setup(struct device *dev,
 	dx_sepapp_init(drvdata);
 #endif
 
-	rpmb_thread = kthread_create(rpmb_agent, NULL, thread_name);
+	rpmb_thread = kthread_create(rpmb_agent, NULL, rpmb_agent_thread_name);
 	if (!rpmb_thread) {
 		pr_err("RPMB agent thread create fail");
 		goto failed10;
 	} else {
 		wake_up_process(rpmb_thread);
+	}
+
+	sep_read_thread = kthread_create(sep_mmc_read, NULL, sep_agent_r_thread_name);
+	if (!sep_read_thread) {
+		pr_err("SEP read agent thread create fail");
+		goto failed10;
+	} else {
+		wake_up_process(sep_read_thread);
+	}
+
+	sep_write_thread = kthread_create(sep_mmc_write, NULL, sep_agent_w_thread_name);
+	if (!sep_write_thread) {
+		pr_err("SEP write agent thread create fail");
+		goto failed10;
+	} else {
+		wake_up_process(sep_write_thread);
 	}
 
 	/* Inform SEP RPMB driver that it can enable RPMB access again */

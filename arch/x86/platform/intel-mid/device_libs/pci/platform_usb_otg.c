@@ -131,6 +131,21 @@ static struct intel_dwc_otg_pdata *get_otg_platform_data(struct pci_dev *pdev)
 				dwc_otg_pdata.using_vusbphy = 1;
 				dwc_otg_pdata.utmi_fs_det_wa = 1;
 			}
+		/* Brighton Shores CDB */
+		} else if (INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, PRO) ||
+				INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, ENG)) {
+			pr_info("%s: Brighton Shores CDB detected\n", __func__);
+			dwc_otg_pdata.pmic_type = DOLLAR_COVE;
+			dwc_otg_pdata.charger_detect_enable = 1;
+
+			dwc_otg_pdata.charging_compliance =
+				dwc_otg_get_usbspecoverride(MERR_SMIP_VIOLATE_BC_ADDR);
+			dwc_otg_pdata.usb2_phy_type = USB2_PHY_ULPI;
+			dwc_otg_pdata.ulpi_eye_calibration = 0x7D;
+			/* Brighton Shores CDB: USB_ULPI_RST_N = GP<16> = gpio_ctrl[180] */
+			dwc_otg_pdata.gpio_cs = get_gpio_by_name("usb_ulpi_reset");
+			/* Brighton Shores CDB: CC_MODE_N = GP<10> = gpio_ctrl[174] */
+			dwc_otg_pdata.gpio_typec_highicc = get_gpio_by_name("cc_mode");
 		} else if (INTEL_MID_BOARD(1, PHONE, MRFL)) {
 			dwc_otg_pdata.pmic_type = BASIN_COVE;
 			dwc_otg_pdata.using_vusbphy = 1;

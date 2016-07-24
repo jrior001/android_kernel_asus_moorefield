@@ -397,9 +397,9 @@ enum usb_charger_type {
 #else
 /*USB type*/
 typedef enum {
-	CABLE_OUT,
-	AC_IN,
 	USB_IN,
+	AC_IN,
+	CABLE_OUT,
 	ENABLE_5V,
 	DISABLE_5V,
 	PAD_SUPPLY,

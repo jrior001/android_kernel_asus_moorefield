@@ -341,10 +341,6 @@ static int __init mr_sensor_init(void)
 
     	switch (Read_PROJ_ID()) {
 
-	    case PROJ_ID_ZR550ML:
-		pr_info("Project ID is ZR550ML, MR sesnor init...\n");
-	    break;
-
 	    case PROJ_ID_ZE500ML:
 	    case PROJ_ID_ZE550ML:
 	    case PROJ_ID_ZE551ML:

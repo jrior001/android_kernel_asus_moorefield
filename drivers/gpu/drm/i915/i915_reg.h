@@ -330,6 +330,7 @@
 #define   PIPE_CONTROL_MMIO_WRITE			(1<<23)
 #define   PIPE_CONTROL_CS_STALL				(1<<20)
 #define   PIPE_CONTROL_TLB_INVALIDATE			(1<<18)
+#define   PIPE_CONTROL_MEDIA_STATE_CLEAR		(1<<16)
 #define   PIPE_CONTROL_QW_WRITE				(1<<14)
 #define   PIPE_CONTROL_POST_SYNC_OP_MASK                (3<<14)
 #define   PIPE_CONTROL_DEPTH_STALL			(1<<13)
@@ -425,6 +426,11 @@
 #define   IOSF_PORT_GPS_CORE			0x48
 #define IOSF_PORT_PMC				0x52
 #define   IOSF_PORT_GPIO_NC			0x13
+#define   IOSF_PORT_GPIO_SC			0x48
+#define   IOSF_PORT_GPIO_SUS			0xA8
+#define   MAX_GPIO_NUM_NC			26
+#define   MAX_GPIO_NUM_SC			128
+#define   MAX_GPIO_NUM				172
 #define   IOSF_PORT_CCK				0x14
 #define   IOSF_PORT_CCU				0xA9
 #define   IOSF_PORT_GPS_CORE			0x48
@@ -499,6 +505,9 @@
 #define DPIO_DEVFN			0
 #define DPIO_OPCODE_REG_WRITE		1
 #define DPIO_OPCODE_REG_READ		0
+
+#define GPIO_DEVFN			0
+#define GPS_DEVFN			0
 
 #define DPIO_CTL			(VLV_DISPLAY_BASE + 0x2110)
 #define  DPIO_MODSEL1			(1<<3) /* if ref clk b == 27 */
@@ -3326,7 +3335,7 @@ EDP_PSR_SW_TIMER
 #define   DPINVGTT_STATUS_MASK			0xff
 
 #define DSPARB			(dev_priv->info->display_mmio_offset + 0x70030)
-#define DSPARB_VLV_DEFAULT	0xc080c080
+#define DSPARB_VLV_DEFAULT	0x80008000
 #define   DSPARB_CSTART_MASK	(0x7f << 7)
 #define   DSPARB_CSTART_SHIFT	7
 #define   DSPARB_BSTART_MASK	(0x7f)
@@ -5983,10 +5992,5 @@ EDP_PSR_SW_TIMER
 #define VHDMICNT		0x6d
 #define VHDMI_ON		0x03
 #define VHDMI_OFF		0x02
-
-/*
- * This rail is valid only for FFRD8 Baytrail.
- */
-#define FFRD8_PR1_DISP_BKLGHT_REGULATOR	"v3p3sx"
 
 #endif /* _I915_REG_H_ */

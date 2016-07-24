@@ -23,13 +23,21 @@ static struct i2c_board_info __initdata lp8556_i2c_device = {
 	I2C_BOARD_INFO("lp8556", 0x2C),
 };
 
+#define LP8556_MODE_SL_2MS_FL_HV_PWM_12BIT     0x3E
+#define LP8556_FAST_CONFIG     BIT(7) /* use it if EPROMs should be maintained
+					when exiting the low power mode */
+
+struct lp855x_rom_data lp8556_rom_data[] = {
+		{ LP8556_CFG3, LP8556_MODE_SL_2MS_FL_HV_PWM_12BIT }
+};
+
 struct lp855x_platform_data platform_data = {
 	.name = "lp8556",
-	.device_control = 0,
+	.device_control = LP8556_FAST_CONFIG,
 	.initial_brightness = 0,
 	.period_ns = 5000000, /* 200 Hz */
-	.size_program = 0,
-	.rom_data = NULL,
+	.size_program = ARRAY_SIZE(lp8556_rom_data),
+	.rom_data = lp8556_rom_data,
 };
 
 void *lp8556_get_platform_data(void)

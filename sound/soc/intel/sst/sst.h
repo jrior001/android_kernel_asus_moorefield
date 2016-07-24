@@ -73,6 +73,7 @@ enum sst_algo_ops {
 };
 
 #define SST_BLOCK_TIMEOUT	1000
+#define SST_BLOCK_TIMEOUT_2SEC	2000
 
 /* SST register map */
 #define SST_CSR			0x00
@@ -582,6 +583,7 @@ struct intel_sst_drv {
 	 * persistent till worker thread gets called
 	 */
 	char firmware_name[20];
+	int reboot_notify;
 };
 
 extern struct intel_sst_drv *sst_drv_ctx;
@@ -923,6 +925,7 @@ static inline int get_stream_id_mrfld(u32 pipe_id)
 
 int register_sst(struct device *);
 int unregister_sst(struct device *);
+int sst_reboot_callback(struct notifier_block *nfb, unsigned long event, void *data);
 int sst_platform_cb(struct sst_platform_cb_params *cb_params);
 #ifdef CONFIG_DEBUG_FS
 void sst_debugfs_init(struct intel_sst_drv *sst);

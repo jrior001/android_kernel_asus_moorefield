@@ -360,7 +360,7 @@ int __init sfi_handle_spid(struct sfi_table_header *table)
 	}
 
 	memcpy(&spid, &oemb->spid, sizeof(struct soft_platform_id));
-#if defined(CONFIG_ME372CL) || defined(CONFIG_PF450CL) || defined(CONFIG_A500CG)
+#if defined(CONFIG_ME372CL) || defined(CONFIG_PF450CL)
 	spid.customer_id = 0x0;
 	spid.vendor_id = 0x0;
 	spid.manufacturer_id = 0x3;
@@ -377,7 +377,7 @@ int __init sfi_handle_spid(struct sfi_table_header *table)
 	spid.fru[7] = 0x0;
 	spid.fru[6] = 0x0;
 	spid.fru[5] = 0x11;
-#endif /* CONFIG_ME372CL || CONFIG_PF450CL || CONFIG_A500CG */
+#endif /* CONFIG_ME372CL || CONFIG_PF450CL */
 
 	if (oemb->header.len <
 			(char *)oemb->ssn + INTEL_PLATFORM_SSN_SIZE -

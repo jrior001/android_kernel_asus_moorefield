@@ -37,7 +37,9 @@ struct usb_functionfs_descs_head {
 	__le32 length;
 	__le32 fs_count;
 	__le32 hs_count;
+#ifdef CONFIG_USB_INTEL_SUPERSPEED
 	__le32 ss_count;
+#endif
 } __attribute__((packed));
 
 /*

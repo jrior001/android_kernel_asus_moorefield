@@ -17,6 +17,10 @@
 #include <linux/of.h>
 #include <linux/platform_data/lp855x.h>
 #include <linux/pwm.h>
+#include <linux/regulator/consumer.h>
+#include <asm/spid.h>
+#include <linux/delay.h>
+#include <linux/earlysuspend.h>
 
 /* LP8550/1/2/3/6 Registers */
 #define LP855X_BRIGHTNESS_CTRL		0x00
@@ -38,6 +42,8 @@
 
 #define DEFAULT_BL_NAME		"lcd-backlight"
 #define MAX_BRIGHTNESS		255
+
+#define FFRD8_PR1_DISP_BKLGHT_REGULATOR        "v3p3sx"
 
 enum lp855x_brightness_ctrl_mode {
 	PWM_BASED = 1,
@@ -66,6 +72,7 @@ struct lp855x {
 	enum lp855x_brightness_ctrl_mode mode;
 	struct lp855x_device_config *cfg;
 	struct i2c_client *client;
+	struct regulator *v3p3s_reg;
 	struct backlight_device *bl;
 	struct device *dev;
 	struct lp855x_platform_data *pdata;
@@ -76,6 +83,8 @@ struct lp855x {
  * to port the code here.
  */
 struct lp855x *lpdata;
+
+static struct i2c_client *gcl;
 
 int lp855x_ext_write_byte(u8 reg, u8 data)
 {
@@ -174,6 +183,15 @@ static struct lp855x_device_config lp8557_dev_cfg = {
 	.reg_devicectrl = LP8557_CONFIG,
 	.pre_init_device = lp8557_bl_off,
 	.post_init_device = lp8557_bl_on,
+};
+
+static int lp855x_suspend(struct early_suspend *h);
+static int lp855x_resume(struct early_suspend *h);
+
+static struct early_suspend lp855x_early_suspend = {
+	.level = EARLY_SUSPEND_LEVEL_DISABLE_FB - 1,
+	.suspend = lp855x_suspend,
+	.resume = lp855x_resume,
 };
 
 /*
@@ -419,6 +437,64 @@ static int lp855x_parse_dt(struct device *dev, struct device_node *node)
 }
 #endif
 
+static int lp855x_suspend(struct early_suspend *h)
+{
+	struct i2c_client *cl = gcl;
+	struct lp855x *lp = i2c_get_clientdata(cl);
+	int rgrt = 0;
+	static bool getregulator = true;
+	if (getregulator) {
+		lp->v3p3s_reg = regulator_get(&cl->dev,
+			FFRD8_PR1_DISP_BKLGHT_REGULATOR);
+		if (IS_ERR(lp->v3p3s_reg)) {
+			pr_err("3P3SX Regulator get failed\n");
+			lp->v3p3s_reg = NULL;
+			return 0;
+		}
+		/* FIXME:Remove this once regulator
+				framework does default enable */
+		rgrt = regulator_enable(lp->v3p3s_reg);
+		if (rgrt) {
+			pr_err("Failed to turn ON 3P3SX first time\n");
+			return rgrt;
+		}
+		getregulator = false;
+	}
+
+	if (lp->v3p3s_reg != NULL) {
+		rgrt = regulator_disable(lp->v3p3s_reg);
+		if (rgrt)
+			pr_err("Failed to turn OFF 3P3SX\n");
+	}
+	return rgrt;
+}
+
+static int lp855x_resume(struct early_suspend *h)
+{
+	struct i2c_client *cl = gcl;
+	struct lp855x *lp = i2c_get_clientdata(cl);
+	int rgrt = 0;
+	int cnt = 0;
+	if (lp->v3p3s_reg != NULL) {
+		rgrt = regulator_enable(lp->v3p3s_reg);
+		pr_err("RESULT: Regulator enable=%d\n", rgrt);
+		if (rgrt) {
+			pr_err("Failed to turn ON 3P3SX\n");
+			return rgrt;
+		}
+		for (cnt = 0; cnt < 5; cnt++) {
+			udelay(20);
+			rgrt = lp855x_configure(lp);
+			if (rgrt)
+				dev_err(lp->dev,
+					"device config err: %d", rgrt);
+			else
+				break;
+		}
+	}
+	return rgrt;
+}
+
 static int lp855x_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 {
 	struct lp855x *lp;
@@ -461,11 +537,7 @@ static int lp855x_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	lp->chip_id = id->driver_data;
 	i2c_set_clientdata(cl, lp);
 
-	ret = lp855x_configure(lp);
-	if (ret) {
-		dev_err(lp->dev, "device config err: %d", ret);
-		goto err_dev;
-	}
+	gcl = cl;
 
 	ret = lp855x_backlight_register(lp);
 	if (ret) {
@@ -481,6 +553,7 @@ static int lp855x_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	}
 
 	backlight_update_status(lp->bl);
+	register_early_suspend(&lp855x_early_suspend);
 	return 0;
 
 err_sysfs:

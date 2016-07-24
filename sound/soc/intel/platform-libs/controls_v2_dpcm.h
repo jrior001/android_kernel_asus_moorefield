@@ -27,6 +27,13 @@
 #define __SST_CONTROLS_V2_DPCM_H__
 
 #include <uapi/sound/atom_controls.h>
+
+/*These are added specially for BTNS board to check pcm rates*/
+#define SNDRV_BTNS_PCM_RATE_8000	8000
+#define SNDRV_BTNS_PCM_RATE_16000	16000
+#define SNDRV_BTNS_PCM_RATE_44100	44100
+#define SNDRV_BTNS_PCM_RATE_48000	48000
+
 /*
  * FBA probe point index id
  */

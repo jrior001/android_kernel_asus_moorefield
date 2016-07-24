@@ -28,7 +28,6 @@
 
 #include<linux/wakelock.h>
 
-
 #define DRVNAME				"xmm2230"
 #define TTYNAME				"ttyXMM"
 

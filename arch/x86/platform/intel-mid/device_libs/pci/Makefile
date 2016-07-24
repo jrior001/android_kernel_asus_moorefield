@@ -9,5 +9,7 @@ obj-$(subst m,y,$(CONFIG_USB_EHCI_HCD_SPH))				+= platform_ehci_sph.o
 # Vibra driver platform data
 obj-$(subst m,y,$(CONFIG_INPUT_INTEL_MID_VIBRA))                        += platform_mid_vibra.o
 obj-$(subst m,y,$(CONFIG_INPUT_INTEL_MID_VIBRA_PF450CL))                += platform_mid_vibra.o
+# PWM World LED platform data
+obj-$(subst m,y,$(CONFIG_PWM_WORLD_LED)) 				+= platform_mid_world_led.o
 obj-$(subst m,y,$(CONFIG_USB_XHCI_HCD))					+= platform_ush_hsic.o
 obj-$(subst m,y,$(CONFIG_VIDEO_CSS2600))				+= platform_css2600.o

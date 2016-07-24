@@ -43,6 +43,7 @@
 #include <linux/lnw_gpio.h>
 #include <linux/delay.h>
 #include <linux/acpi.h>
+#include <linux/reboot.h>
 #include <asm/intel-mid.h>
 #include <asm/platform_sst_audio.h>
 #include <asm/platform_sst.h>
@@ -72,7 +73,14 @@ static struct mutex drv_ctx_lock;
 #else
 #define intel_sst_ioctl_compat NULL
 #endif
-#define DEFAULT_FW_MONITOR_INTERVAL 9000 /*timer callback interval in ms to check lpe state*/
+/* set the default timer to 4.5s, As it will work for
+ * PCM/Compress/Hostless case, until the minimal logic
+ * for timer is implemented. The number 4.5 is because
+ * Any timer greater than 5s will casuse issues with
+ * PCM playback as HAL reacts before triggering the recovery
+ * Any number below 4s is not ideal for compress usecase
+ */
+#define DEFAULT_FW_MONITOR_INTERVAL 4500 /*timer callback interval in ms to check lpe state*/
 #define MIN_FW_MONITOR_INTERVAL     500
 #define MAX_FW_MONITOR_INTERVAL     20000
 
@@ -120,12 +128,13 @@ static irqreturn_t intel_sst_interrupt_mrfld(int irq, void *context)
 	unsigned int size = 0;
 	struct intel_sst_drv *drv = (struct intel_sst_drv *) context;
 	irqreturn_t retval = IRQ_HANDLED;
+	unsigned long irq_flags;
 
 	/* Interrupt arrived, check src */
 	isr.full = sst_shim_read64(drv->shim, SST_ISRX);
 	if (isr.part.done_interrupt) {
 		/* Clear done bit */
-		spin_lock(&drv->ipc_spin_lock);
+		spin_lock_irqsave(&drv->ipc_spin_lock, irq_flags);
 		header.full = sst_shim_read64(drv->shim,
 					drv->ipc_reg.ipcx);
 		header.p.header_high.part.done = 0;
@@ -133,7 +142,7 @@ static irqreturn_t intel_sst_interrupt_mrfld(int irq, void *context)
 		/* write 1 to clear status register */;
 		isr.part.done_interrupt = 1;
 		sst_shim_write64(drv->shim, SST_ISRX, isr.full);
-		spin_unlock(&drv->ipc_spin_lock);
+		spin_unlock_irqrestore(&drv->ipc_spin_lock, irq_flags);
 		trace_sst_ipc("ACK   <-", header.p.header_high.full,
 					  header.p.header_low_payload,
 					  header.p.header_high.part.drv_id);
@@ -141,11 +150,11 @@ static irqreturn_t intel_sst_interrupt_mrfld(int irq, void *context)
 		retval = IRQ_HANDLED;
 	}
 	if (isr.part.busy_interrupt) {
-		spin_lock(&drv->ipc_spin_lock);
+		spin_lock_irqsave(&drv->ipc_spin_lock, irq_flags);
 		imr.full = sst_shim_read64(drv->shim, SST_IMRX);
 		imr.part.busy_interrupt = 1;
 		sst_shim_write64(drv->shim, SST_IMRX, imr.full);
-		spin_unlock(&drv->ipc_spin_lock);
+		spin_unlock_irqrestore(&drv->ipc_spin_lock, irq_flags);
 		header.full =  sst_shim_read64(drv->shim, drv->ipc_reg.ipcd);
 		if (sst_create_ipc_msg(&msg, header.p.header_high.part.large)) {
 			pr_err("No memory available\n");
@@ -168,9 +177,9 @@ static irqreturn_t intel_sst_interrupt_mrfld(int irq, void *context)
 		trace_sst_ipc("REPLY <-", msg->mrfld_header.p.header_high.full,
 					  msg->mrfld_header.p.header_low_payload,
 					  msg->mrfld_header.p.header_high.part.drv_id);
-		spin_lock(&drv->rx_msg_lock);
+		spin_lock_irqsave(&drv->rx_msg_lock, irq_flags);
 		list_add_tail(&msg->node, &drv->rx_list);
-		spin_unlock(&drv->rx_msg_lock);
+		spin_unlock_irqrestore(&drv->rx_msg_lock, irq_flags);
 		drv->ops->clear_interrupt();
 		retval = IRQ_WAKE_THREAD;
 	}
@@ -223,9 +232,10 @@ static irqreturn_t intel_sst_intr_mfld(int irq, void *context)
 	unsigned int size = 0;
 	struct intel_sst_drv *drv = (struct intel_sst_drv *) context;
 
+	header.full = sst_shim_read(drv->shim, drv->ipc_reg.ipcx);
 	/* Interrupt arrived, check src */
 	isr.full = sst_shim_read(drv->shim, SST_ISRX);
-	if (isr.part.done_interrupt) {
+	if (isr.part.done_interrupt || header.part.done) {
 		/* Mask all interrupts till this one is processsed */
 		set_imr_interrupts(drv, false);
 		/* Clear done bit */
@@ -243,7 +253,8 @@ static irqreturn_t intel_sst_intr_mfld(int irq, void *context)
 		set_imr_interrupts(drv, true);
 		retval = IRQ_HANDLED;
 	}
-	if (isr.part.busy_interrupt) {
+	header.full = sst_shim_read(drv->shim, drv->ipc_reg.ipcd);
+	if (isr.part.busy_interrupt || header.part.busy) {
 		/* Mask all interrupts till we process it in bottom half */
 		set_imr_interrupts(drv, false);
 		header.full = sst_shim_read(drv->shim, drv->ipc_reg.ipcd);
@@ -406,8 +417,20 @@ int sst_driver_ops(struct intel_sst_drv *sst)
 
 	switch (sst->pci_id) {
 	case SST_MRFLD_PCI_ID:
-		sst->tstamp = SST_TIME_STAMP_MRFLD;
+		if (INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, PRO) ||
+		INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, ENG)) {
+			sst->tstamp = SST_TIME_STAMP_MOFD;
+		} else {
+			sst->tstamp = SST_TIME_STAMP_MRFLD;
+		}
 		sst->ops = &mrfld_ops;
+
+		if (!sst->pdata->enable_recovery) {
+			pr_debug("Recovery disabled for this mofd platform\n");
+			sst->ops->do_recovery = sst_debug_dump;
+		} else
+			pr_debug("Recovery enabled for this mofd platform\n");
+
 		return 0;
 	case PCI_DEVICE_ID_INTEL_SST_MOOR:
 		sst->tstamp = SST_TIME_STAMP_MOFD;
@@ -564,6 +587,11 @@ void sst_recovery_exit(struct intel_sst_drv *sst_drv_ctx)
 
 }
 
+static struct notifier_block sst_reboot_notifier_block = {
+	.notifier_call = sst_reboot_callback,
+	.priority = 0,
+};
+
 /*
 * intel_sst_probe - PCI probe function
 *
@@ -589,6 +617,7 @@ static int intel_sst_probe(struct pci_dev *pci,
 	if (ret)
 		return ret;
 
+	sst_drv_ctx->reboot_notify = 0;
 	sst_drv_ctx->dev = &pci->dev;
 	sst_drv_ctx->pci_id = pci->device;
 	if (!sst_pdata)
@@ -724,7 +753,10 @@ static int intel_sst_probe(struct pci_dev *pci,
 	}
 	pr_debug("SRAM Ptr %p\n", sst_drv_ctx->mailbox);
 
-	if (sst_drv_ctx->pci_id == PCI_DEVICE_ID_INTEL_SST_MOOR) {
+	if ((sst_drv_ctx->pci_id == PCI_DEVICE_ID_INTEL_SST_MOOR) ||
+		    ((sst_drv_ctx->pci_id == PCI_DEVICE_ID_INTEL_SST_MRFLD) &&
+		    (INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, PRO) ||
+		    INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, ENG)))) {
 		sst_drv_ctx->ipc_mailbox = sst_drv_ctx->ddr + SST_DDR_MAILBOX_BASE;
 		sst_drv_ctx->mailbox_size = SST_MAILBOX_SIZE_MOFD;
 	} else {
@@ -891,6 +923,7 @@ static int intel_sst_probe(struct pci_dev *pci,
 	pm_runtime_put_noidle(sst_drv_ctx->dev);
 	register_sst(sst_drv_ctx->dev);
 	sst_debugfs_init(sst_drv_ctx);
+	register_reboot_notifier(&sst_reboot_notifier_block);
 	sst_drv_ctx->qos = kzalloc(sizeof(struct pm_qos_request),
 				GFP_KERNEL);
 	if (!sst_drv_ctx->qos) {
@@ -969,6 +1002,7 @@ static void intel_sst_remove(struct pci_dev *pci)
 	sst_debugfs_exit(sst_drv_ctx);
 	pm_runtime_get_noresume(sst_drv_ctx->dev);
 	pm_runtime_forbid(sst_drv_ctx->dev);
+	unregister_reboot_notifier(&sst_reboot_notifier_block);
 	unregister_sst(sst_drv_ctx->dev);
 	pci_dev_put(sst_drv_ctx->pci);
 	sst_set_fw_state_locked(sst_drv_ctx, SST_SHUTDOWN);

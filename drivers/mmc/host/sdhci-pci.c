@@ -24,10 +24,12 @@
 #include <linux/scatterlist.h>
 #include <linux/io.h>
 #include <linux/gpio.h>
+#include <linux/intel_mid_pm.h>
 #include <linux/pm_runtime.h>
 #include <linux/mmc/sdhci-pci-data.h>
 #include <linux/lnw_gpio.h>
 #include <linux/acpi_gpio.h>
+#include <linux/HWVersion.h>
 
 #include <asm/intel_mid_rpmsg.h>
 #include <asm/intel_scu_flis.h>
@@ -72,9 +74,15 @@
 #define ENCTRL0_OFF		0x10
 #define ENCTRL1_OFF		0x11
 
+#ifdef CONFIG_ZS550ML
+unsigned char gpio_SD_3V3_EN;
+EXPORT_SYMBOL(gpio_SD_3V3_EN);
+#endif
+
 struct sdhci_pci_chip;
 struct sdhci_pci_slot;
-
+extern bool is_sd_SanDisk(struct mmc_host *host);
+extern int Read_PROJ_ID(void);
 struct sdhci_pci_fixes {
 	unsigned int		quirks;
 	unsigned int		quirks2;
@@ -260,6 +268,19 @@ static void sdhci_pci_add_own_cd(struct sdhci_pci_slot *slot)
 
 	slot->cd_gpio = gpio;
 	slot->cd_irq = irq;
+
+#ifdef CONFIG_ZS550ML
+	gpio_SD_3V3_EN = get_gpio_by_name("SD_3V3_EN");
+
+	if (gpio_is_valid(gpio_SD_3V3_EN)) {
+		err = gpio_request(gpio_SD_3V3_EN, "sd_3v3_en");
+		if (err < 0) {
+			pr_err("%s: gpio_request(%d) fails:%d\n", __func__,
+					gpio_SD_3V3_EN, err);
+			goto out;
+		}
+	}
+#endif
 
 	return;
 
@@ -949,8 +970,7 @@ static int intel_moor_sd_probe_slot(struct sdhci_pci_slot *slot)
 {
 	int ret = 0;
 
-	slot->host->mmc->caps2 |= MMC_CAP2_PWCTRL_POWER |
-	    MMC_CAP2_FIXED_NCRC;
+	slot->host->mmc->caps2 |= MMC_CAP2_FIXED_NCRC;
 	if (slot->data)
 		if (slot->data->platform_quirks & PLFM_QUIRK_NO_HOST_CTRL_HW)
 			ret = -ENODEV;
@@ -2031,6 +2051,23 @@ static int sdhci_pci_suspend(struct device *dev)
 			goto err_pci_suspend;
 	}
 
+	switch (chip->pdev->device) {
+	case PCI_DEVICE_ID_INTEL_MOOR_SD:
+		for (i = 0; i < chip->num_slots; i++) {
+			slot = chip->slots[i];
+			if (slot && slot->data)
+				if ((slot->data->cleanup) && (Read_PROJ_ID() != PROJ_ID_ZX550ML))
+					if(slot->host && slot->host->mmc)
+						if (is_sd_SanDisk(slot->host->mmc)) {
+							slot->data->cleanup(slot->data);
+							pr_info("%s: is SanDisk SD card, power off when suspend\n", mmc_hostname(slot->host->mmc));
+						}
+		}
+		break;
+	default:
+		break;
+	}
+
 	return 0;
 
 err_pci_suspend:
@@ -2049,6 +2086,23 @@ static int sdhci_pci_resume(struct device *dev)
 	chip = pci_get_drvdata(pdev);
 	if (!chip)
 		return 0;
+
+	switch (chip->pdev->device) {
+	case PCI_DEVICE_ID_INTEL_MOOR_SD:
+		for (i = 0; i < chip->num_slots; i++) {
+			slot = chip->slots[i];
+			if (slot && slot->data)
+				if ((slot->data->setup) && (Read_PROJ_ID() != PROJ_ID_ZX550ML))
+					if(slot->host && slot->host->mmc)
+						if (is_sd_SanDisk(slot->host->mmc)) {
+							slot->data->setup(slot->data);
+							pr_info("%s: is SanDisk SD card, power on when resume\n", mmc_hostname(slot->host->mmc));
+						}
+		}
+		break;
+	default:
+		break;
+	}
 
 	if (chip->fixes && chip->fixes->resume) {
 		ret = chip->fixes->resume(chip);

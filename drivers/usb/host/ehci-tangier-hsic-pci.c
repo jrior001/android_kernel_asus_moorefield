@@ -31,6 +31,43 @@
 #include <linux/pm_qos.h>
 #include <linux/intel_mid_pm.h>
 
+/* log urb event */
+#define EHCI_HSIC_URB_DBG
+
+#ifdef EHCI_HSIC_URB_DBG
+
+#define DBG_EP2_SIZE_LOG_BIT_MASK 0x1
+#define DBG_EP6_SIZE_LOG_BIT_MASK 0x2
+
+#define DBG_ALL_EP_SIZE_LOG_BIT_MASK \
+  (DBG_EP2_SIZE_LOG_BIT_MASK | DBG_EP6_SIZE_LOG_BIT_MASK)
+
+#define DBG_EP_DATA_LOG_BIT_MASK 0x1000
+
+#define DBG_EP_DATA_LOG_MAX_LEN 512
+
+#define TIME_BUF_LEN 20
+#define DBG_MAX_URB_EVENTS 300UL
+#define DBG_MSG_LEN 100UL
+static unsigned int urb_log_enable = 0;
+
+enum event_type {
+       URB_SUBMIT = 0,
+       URB_COMPLETE,
+       NONE,
+};
+
+static struct {
+       char     buf[DBG_MAX_URB_EVENTS][DBG_MSG_LEN];
+       unsigned idx;
+       rwlock_t lock;
+} dbg_hsic_ctx = {
+       .idx = 0,
+       .lock = __RW_LOCK_UNLOCKED(lock)
+};
+
+#endif
+
 static struct pci_dev	*pci_dev;
 static struct class *hsic_class;
 static struct device *hsic_class_dev;
@@ -184,6 +221,83 @@ static const struct file_operations ipc_stats_fops = {
 	.llseek                 = seq_lseek,
 	.release                = single_release,
 };
+
+/* log urb event */
+#ifdef EHCI_HSIC_URB_DBG
+static char* get_timestamp(char *tbuf)
+{
+       unsigned long long t;
+       unsigned long nanosec_rem;
+
+       t =  local_clock(); //cpu_clock(smp_processor_id());
+       nanosec_rem = do_div(t, 1000000000)/1000;
+       scnprintf(tbuf, TIME_BUF_LEN, "[%5lu.%6lu] ", (unsigned long)t,
+               nanosec_rem);
+       return tbuf;
+}
+
+static void dbg_inc(unsigned *idx)
+{
+       *idx = (*idx + 1) & (DBG_MAX_URB_EVENTS-1);
+}
+
+void dbg_hsic_log(struct urb *urb, unsigned int dir)
+{
+       unsigned long flags;
+       int ep_addr;
+       char tbuf[TIME_BUF_LEN];
+
+       if (urb != NULL && ((urb_log_enable & (DBG_ALL_EP_SIZE_LOG_BIT_MASK))))
+               ep_addr = urb->ep->desc.bEndpointAddress;
+       else
+               return;
+	/* urb_log_enable: 1. log acm port urb events 2. log ncm port events */
+
+       if(((dir == URB_SUBMIT) || (dir == URB_COMPLETE)) &&
+		(((urb_log_enable & DBG_EP2_SIZE_LOG_BIT_MASK) && (ep_addr == 129 || ep_addr == 130 || ep_addr == 2 || ep_addr == 0)) ||
+		((urb_log_enable & DBG_EP6_SIZE_LOG_BIT_MASK) && (ep_addr == 133 || ep_addr == 134 || ep_addr == 6)))) {
+               write_lock_irqsave(&dbg_hsic_ctx.lock, flags);
+               scnprintf(dbg_hsic_ctx.buf[dbg_hsic_ctx.idx], DBG_MSG_LEN,
+                       "[URB]%s: [%s : %p]:ep%d[%s]  %u %d\n",
+               get_timestamp(tbuf), (dir == URB_SUBMIT) ? "S" : "C",
+               urb, ep_addr & 0x0ff,
+               (ep_addr & USB_DIR_IN) ? "in" : "out",
+               (dir == URB_SUBMIT) ? urb->transfer_buffer_length: urb->actual_length,
+               urb->status);
+               pr_info("%s", dbg_hsic_ctx.buf[dbg_hsic_ctx.idx]);
+               if(urb_log_enable & DBG_EP_DATA_LOG_BIT_MASK)
+                       print_hex_dump(KERN_DEBUG, "urb_data ", DUMP_PREFIX_OFFSET,
+                               16, 1, urb->transfer_buffer,
+                               (urb->actual_length > DBG_EP_DATA_LOG_MAX_LEN ? DBG_EP_DATA_LOG_MAX_LEN : urb->actual_length), 1);
+               dbg_inc(&dbg_hsic_ctx.idx);
+               write_unlock_irqrestore(&dbg_hsic_ctx.lock, flags);
+       }
+}
+
+extern int ehci_urb_enqueue(struct usb_hcd *hcd, struct urb *urb, gfp_t mem_flags);
+
+static int ehci_hsic_pci_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
+       gfp_t mem_flags)
+{
+       dbg_hsic_log(urb, URB_SUBMIT);
+//     pr_info(" dump hsic submit\n");
+       return ehci_urb_enqueue(hcd, urb, mem_flags);
+}
+
+void dump_hsic_urbs(void)
+{
+       int i = 0;
+       pr_info("##################  dump hsic URB events ##############\n");
+       if (!hsic_enable) {
+               pr_info("hsic is not enabled. just return.\n");
+               return;
+       }
+       for (i = 0; i < DBG_MAX_URB_EVENTS; i++) {
+               pr_info("%s", dbg_hsic_ctx.buf[i]);
+       }
+}
+#endif
+
 
 /* Workaround for OSPM, set PMCMD to ask SCU
  * power gate EHCI controller and DPHY
@@ -359,7 +473,7 @@ static irqreturn_t hsic_aux_gpio_irq(int irq, void *data)
 
 	hsic.hsic_aux_finish = 0;
 	schedule_delayed_work(&hsic.hsic_aux, 0);
-	dev_dbg(dev,
+	dev_err(dev,
 		"%s<----\n", __func__);
 
 	return IRQ_HANDLED;
@@ -745,6 +859,25 @@ static const struct file_operations hsic_debugfs_host_resume_fops = {
 	.release		= single_release,
 };
 
+/* log urb event */
+#ifdef EHCI_HSIC_URB_DBG
+static ssize_t urb_log_enable_show(struct device *dev,
+                struct device_attribute *attr, char *buf)
+{
+        return sprintf(buf, "%d\n", urb_log_enable);
+}
+
+static ssize_t urb_log_enable_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	urb_log_enable = simple_strtoul(buf, NULL, 0);
+	return size;
+}
+
+static DEVICE_ATTR(urb_log_enable, S_IRUGO | S_IWUGO,
+                urb_log_enable_show, urb_log_enable_store);
+#endif
+
 static ssize_t hsic_port_enable_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1121,11 +1254,20 @@ static int create_class_device_files(void)
 		goto hsic_class_fail;
 	}
 
+	/* log urb event */
+#ifdef EHCI_HSIC_URB_DBG
+	retval = device_create_file(hsic_class_dev, &dev_attr_urb_log_enable);
+	if (retval < 0) {
+		dev_dbg(&pci_dev->dev, "error create urb_log_enable\n");
+		goto hsic_class_dev_fail;
+	}
+#endif
 	retval = device_create_file(hsic_class_dev, &dev_attr_hsic_enable);
 	if (retval < 0) {
 		dev_dbg(&pci_dev->dev, "error create hsic_enable\n");
 		goto hsic_class_dev_fail;
 	}
+
 	hsic.autosuspend_enable = 0;
 	retval = device_create_file(hsic_class_dev,
 			 &dev_attr_L2_autosuspend_enable);
@@ -1184,11 +1326,20 @@ static int create_device_files()
 {
 	int retval;
 
+	/* log urb event */
+#ifdef EHCI_HSIC_URB_DBG
+	retval = device_create_file(&pci_dev->dev, &dev_attr_urb_log_enable);
+	if (retval < 0) {
+		dev_dbg(&pci_dev->dev, "error create urb_log_enable\n");
+		goto urb_log_enable;
+	}
+#endif
 	retval = device_create_file(&pci_dev->dev, &dev_attr_hsic_enable);
 	if (retval < 0) {
 		dev_dbg(&pci_dev->dev, "error create hsic_enable\n");
 		goto hsic_enable;
 	}
+
 	hsic.autosuspend_enable = 0;
 	retval = device_create_file(&pci_dev->dev,
 			 &dev_attr_L2_autosuspend_enable);
@@ -1229,6 +1380,11 @@ autosuspend:
 host_resume:
 	device_remove_file(&pci_dev->dev, &dev_attr_hsic_enable);
 hsic_enable:
+	/* log urb event */
+#ifdef EHCI_HSIC_URB_DBG
+	device_remove_file(&pci_dev->dev, &dev_attr_urb_log_enable);
+urb_log_enable:
+#endif
 hsic_class_fail:
 
 	return retval;
@@ -1241,6 +1397,9 @@ static void remove_device_files()
 	device_remove_file(&pci_dev->dev, &dev_attr_bus_inactivityDuration);
 	device_remove_file(&pci_dev->dev, &dev_attr_remoteWakeup);
 	device_remove_file(&pci_dev->dev, &dev_attr_hsic_enable);
+#ifdef EHCI_HSIC_URB_DBG
+	device_remove_file(&pci_dev->dev, &dev_attr_urb_log_enable);
+#endif
 }
 
 static void hsic_debugfs_cleanup()
@@ -1374,6 +1533,13 @@ static int ehci_hsic_probe(struct pci_dev *pdev,
 	}
 
 	hcd = usb_create_hcd(driver, &pdev->dev, dev_name(&pdev->dev));
+
+	/* log urb event */
+#ifdef EHCI_HSIC_URB_DBG
+       hcd->driver->urb_enqueue = ehci_hsic_pci_urb_enqueue;
+       hcd->driver->urb_log_complete = dbg_hsic_log;
+#endif
+
 	if (!hcd) {
 		retval = -ENOMEM;
 		goto disable_pci;

@@ -34,6 +34,8 @@ static void *ion_page_pool_alloc_pages(struct ion_page_pool *pool)
 
 	if (!page)
 		return NULL;
+	ion_page_pool_alloc_set_cache_policy(pool, page);
+
 	ion_pages_sync_for_device(NULL, page, PAGE_SIZE << pool->order,
 						DMA_BIDIRECTIONAL);
 	return page;
@@ -42,6 +44,7 @@ static void *ion_page_pool_alloc_pages(struct ion_page_pool *pool)
 static void ion_page_pool_free_pages(struct ion_page_pool *pool,
 				     struct page *page)
 {
+	ion_page_pool_free_set_cache_policy(pool, page);
 	__free_pages(page, pool->order);
 }
 
@@ -108,13 +111,18 @@ void *ion_page_pool_alloc(struct ion_page_pool *pool)
 	return page;
 }
 
-void ion_page_pool_free(struct ion_page_pool *pool, struct page* page)
+void ion_page_pool_free(struct ion_page_pool *pool, struct page *page)
 {
 	int ret;
 
 	ret = ion_page_pool_add(pool, page);
 	if (ret)
 		ion_page_pool_free_pages(pool, page);
+}
+
+void ion_page_pool_free_immediate(struct ion_page_pool *pool, struct page *page)
+{
+	ion_page_pool_free_pages(pool, page);
 }
 
 static int ion_page_pool_total(struct ion_page_pool *pool, bool high)
@@ -130,33 +138,28 @@ static int ion_page_pool_total(struct ion_page_pool *pool, bool high)
 int ion_page_pool_shrink(struct ion_page_pool *pool, gfp_t gfp_mask,
 				int nr_to_scan)
 {
-	int nr_freed = 0;
 	int i;
 	bool high;
 
-	high = gfp_mask & __GFP_HIGHMEM;
-
-	if (nr_to_scan == 0)
-		return ion_page_pool_total(pool, high);
+	high = !!(gfp_mask & __GFP_HIGHMEM);
 
 	for (i = 0; i < nr_to_scan; i++) {
 		struct page *page;
 
 		mutex_lock(&pool->mutex);
-		if (high && pool->high_count) {
-			page = ion_page_pool_remove(pool, true);
-		} else if (pool->low_count) {
+		if (pool->low_count) {
 			page = ion_page_pool_remove(pool, false);
+		} else if (high && pool->high_count) {
+			page = ion_page_pool_remove(pool, true);
 		} else {
 			mutex_unlock(&pool->mutex);
 			break;
 		}
 		mutex_unlock(&pool->mutex);
 		ion_page_pool_free_pages(pool, page);
-		nr_freed += (1 << pool->order);
 	}
 
-	return nr_freed;
+	return ion_page_pool_total(pool, high);
 }
 
 struct ion_page_pool *ion_page_pool_create(gfp_t gfp_mask, unsigned int order)

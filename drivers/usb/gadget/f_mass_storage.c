@@ -2699,14 +2699,14 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 		}
 
 		rc = device_create_file(&curlun->dev,
-					 &dev_attr_cdrom);
+					&dev_attr_cdrom);
 		if (rc)
 			goto error_luns;
 
 		rc = device_create_file(&curlun->dev,
 					curlun->cdrom
-				      ? &dev_attr_ro_cdrom
-				      : &dev_attr_ro);
+					? &dev_attr_ro_cdrom
+					: &dev_attr_ro);
 		if (rc)
 			goto error_luns;
 		rc = device_create_file(&curlun->dev,

@@ -44,6 +44,26 @@ config SND_YUKKABEACH_MACHINE
           Say Y if you have such a device
           If unsure select "N".
 
+config SND_BTNS_MACHINE
+	tristate "SOC Machine Audio driver for Intel BTNS MID platform"
+		depends on INTEL_SCU_IPC && X86
+		select SND_SOC_LM49453
+		select SND_SOC_LARGO
+		select SND_SOC_WM_ADSP_LARGO
+		select MFD_CORE
+		select MFD_ARIZONA_LARGO_SPI
+		select SND_SST_PLATFORM
+		select SND_SST_MACHINE
+		select SND_INTEL_SST
+		select SND_EFFECTS_OFFLOAD
+		default n
+		help
+			This adds support for ASoC machine driver for Intel(R) MID Merrifield platform
+			used as alsa device in audio substem in Intel(R) MID devices
+			Say Y if you have such a device
+			If unsure select "N".
+
+
 config SND_MRFLD_MACHINE
 	tristate "SOC Machine Audio driver for Intel Merrifield MID platform"
 	depends on INTEL_SCU_IPC && X86
@@ -159,25 +179,6 @@ config SND_CTP_MACHINE_5671
           Say Y if you have such a device
           If unsure select "N".
 
-config SND_CTP_MACHINE_5647
-	tristate "SOC Machine Audio driver for Intel Cloverview MID platform with ALC5647 codec"
-	depends on INTEL_SCU_IPC_UTIL && X86 && GPIO_LANGWELL
-	select SND_SOC_RT5647
-	select SND_SST_PLATFORM
-	select SND_SST_MACHINE
-	select SND_INTEL_SST
-	select SND_COMPRESS_SST
-	select SND_COMPRESS_OFFLOAD
-	select SND_SOC_COMMS_SSP
-	select A500CG_AUDIO_SETTING
-	depends on A500CG
-	default n
-	help
-          This adds support for ASoC machine driver for Intel(R) MID Cloverview platform
-	  used as alsa device in audio substem in Intel(R) MID devices
-          Say Y if you have such a device
-          If unsure select "N".
-
 config SND_INTEL_SST
        tristate
 
@@ -214,8 +215,3 @@ config SST_DPCM
 config SND_SST_MACHINE
 	tristate
 
-config A500CG_AUDIO_SETTING
-	tristate
-	default n
-	help
-	  This adds support for A500/A600CG specific hardware configuration

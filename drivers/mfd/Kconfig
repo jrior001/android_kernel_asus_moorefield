@@ -1012,6 +1012,13 @@ config MFD_ARIZONA
 	select REGMAP
 	select REGMAP_IRQ
 	select MFD_CORE
+	depends on !MFD_ARIZONA_LARGO
+	bool
+
+config MFD_LARGO
+	select REGMAP
+	select REGMAP_IRQ
+	select MFD_CORE
 	bool
 
 config MFD_ARIZONA_I2C
@@ -1029,26 +1036,44 @@ config MFD_ARIZONA_SPI
 	select MFD_ARIZONA
 	select MFD_CORE
 	select REGMAP_SPI
-	depends on SPI_MASTER && GENERIC_HARDIRQS
+	depends on SPI_MASTER && GENERIC_HARDIRQS && !MFD_ARIZONA_LARGO_SPI
 	help
 	  Support for the Wolfson Microelectronics Arizona platform audio SoC
 	  core functionality controlled via I2C.
 
+config MFD_ARIZONA_LARGO_SPI
+	tristate "Wolfson Microelectronics Arizona largo platform with SPI"
+	select MFD_LARGO
+	select REGMAP_SPI
+	depends on SPI_MASTER && GENERIC_HARDIRQS
+	help
+	  Support for the Wolfson Microelectronics Arizona largo platform audio SoC
+	  core functionality controlled via SPI.
+
+config MFD_CS47L24
+	tristate "cs47l24 codec"
+	select MFD_ARIZONA_LARGO_SPI
+	help
+	  Support for cs47l24
+
 config MFD_WM5102
 	bool "Wolfson Microelectronics WM5102"
+
 	depends on MFD_ARIZONA
 	help
 	  Support for Wolfson Microelectronics WM5102 low power audio SoC
 
-config MFD_FLORIDA
-	bool "Wolfson Microelectronics Florida class codecs"
+
+config MFD_WM5110
+	bool "Wolfson Microelectronics WM5110"
+
 	depends on MFD_ARIZONA
 	help
-	  Support for Wolfson Microelectronics Florida class low power audio SoC
-	  such as the WM8280
+	  Support for Wolfson Microelectronics WM5110 low power audio SoC
 
 config MFD_WM8997
 	bool "Wolfson Microelectronics WM8997"
+	select MFD_CORE
 	depends on MFD_ARIZONA
 	help
 	  Support for Wolfson Microelectronics WM8997 low power audio SoC

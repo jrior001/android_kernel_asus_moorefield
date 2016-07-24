@@ -272,16 +272,22 @@ static void init_charger_cables(struct charger_cable *cable_lst, int count)
 static inline int is_charging_can_be_enabled(struct power_supply *psy)
 {
 	int health;
+	bool result;
 
 	health = HEALTH(psy);
 	if (IS_BATTERY(psy)) {
 		return (health == POWER_SUPPLY_HEALTH_GOOD) ||
 				(health == POWER_SUPPLY_HEALTH_DEAD);
 	} else {
-		return
-	((CURRENT_THROTTLE_ACTION(psy) != PSY_THROTTLE_DISABLE_CHARGER) &&
+		result = (!IS_MANUAL_OVERRIDE(psy) &&
+	(CURRENT_THROTTLE_ACTION(psy) != PSY_THROTTLE_DISABLE_CHARGER) &&
 	(CURRENT_THROTTLE_ACTION(psy) != PSY_THROTTLE_DISABLE_CHARGING) &&
 	(INLMT(psy) >= 100) && (health == POWER_SUPPLY_HEALTH_GOOD));
+		if (!result)
+			pr_err("%s: Can't enable charge. manual_override=%d,throttle_action=%d, inlmt=%d, health=%d\n",
+					__func__, IS_MANUAL_OVERRIDE(psy),
+					CURRENT_THROTTLE_ACTION(psy), INLMT(psy), health);
+	return result;
 	}
 }
 
@@ -295,6 +301,7 @@ static inline void get_cur_chrgr_prop(struct power_supply *psy,
 	chrgr_prop->cable = CABLE_TYPE(psy);
 	chrgr_prop->health = HEALTH(psy);
 	chrgr_prop->tstamp = get_jiffies_64();
+	chrgr_prop->throttle_state = CURRENT_THROTTLE_STATE(psy);
 
 }
 
@@ -359,6 +366,7 @@ update_props:
 	chrgr_cache->present = chrgr_prop_new->present;
 	chrgr_cache->cable = chrgr_prop_new->cable;
 	chrgr_cache->tstamp = chrgr_prop_new->tstamp;
+	chrgr_cache->throttle_state = chrgr_prop_new->throttle_state;
 }
 
 
@@ -434,7 +442,6 @@ update_props:
 	bat_cache->temperature = bat_prop_new->temperature;
 	bat_cache->status = bat_prop_new->status;
 	bat_cache->algo_stat = bat_prop_new->algo_stat;
-	bat_cache->throttle_state = bat_prop_new->throttle_state;
 }
 
 static inline int get_bat_prop_cache(struct power_supply *psy,
@@ -467,7 +474,6 @@ static inline void get_cur_bat_prop(struct power_supply *psy,
 	bat_prop->status = STATUS(psy);
 	bat_prop->health = HEALTH(psy);
 	bat_prop->tstamp = get_jiffies_64();
-	bat_prop->throttle_state = CURRENT_THROTTLE_STATE(psy);
 
 	/* Populate cached algo data to new profile */
 	ret = get_bat_prop_cache(psy, &bat_prop_cache);
@@ -629,9 +635,19 @@ static int get_battery_status(struct power_supply *psy)
 		}
 	}
 	pr_devel("%s: Set status=%d for %s\n", __func__, status, psy->name);
-	pr_err("%s: Set status=%d for %s\n", __func__, status, psy->name);
 
 	return status;
+}
+
+static inline void cache_cur_chrgr_prop_force(struct power_supply *psy)
+{
+	struct charger_props chrgr_prop;
+
+	if (!IS_CHARGER(psy))
+		return;
+
+	get_cur_chrgr_prop(psy, &chrgr_prop);
+	cache_chrgr_prop(&chrgr_prop);
 }
 
 static void update_charger_online(struct power_supply *psy)
@@ -688,6 +704,7 @@ static void update_sysfs(struct power_supply *psy)
 					 * properties
 					 */
 					cache_cur_batt_prop_force(psb);
+					cache_cur_chrgr_prop_force(psy);
 		}
 	}
 }
@@ -945,7 +962,6 @@ static int select_chrgr_cable(struct device *dev, void *data)
 
 		/* update battery properties */
 		update_sysfs(psy);
-
 		mutex_unlock(&psy_chrgr.evt_lock);
 		power_supply_changed(psy);
 		return 0;

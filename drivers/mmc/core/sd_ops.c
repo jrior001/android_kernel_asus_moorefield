@@ -183,11 +183,11 @@ int mmc_send_app_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 
 		mmc_delay(10);
 	}
-	if(err)
-		pr_err("%s: mmc_send_app_op_cond failed, err = %d", mmc_hostname(host), err);
-	if (rocr && !mmc_host_is_spi(host))
+
+    if (rocr && !mmc_host_is_spi(host))
 		*rocr = cmd.resp[0];
-	return err;
+
+    return err;
 }
 
 int mmc_send_if_cond(struct mmc_host *host, u32 ocr)

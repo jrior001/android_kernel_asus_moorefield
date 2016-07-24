@@ -29,14 +29,6 @@
 
 #include "cpufreq_governor.h"
 
-static struct kobject *get_governor_parent_kobj(struct cpufreq_policy *policy)
-{
-	if (have_governor_per_policy())
-		return &policy->kobj;
-	else
-		return cpufreq_global_kobject;
-}
-
 static struct attribute_group *get_sysfs_attr(struct dbs_data *dbs_data)
 {
 	if (have_governor_per_policy())
@@ -97,7 +89,7 @@ void dbs_check_cpu(struct dbs_data *dbs_data, int cpu)
 
 	policy = cdbs->cur_policy;
 
-	/* Get Absolute Load (in terms of freq for ondemand gov) */
+	/* Get Absolute Load */
 	for_each_cpu(j, policy->cpus) {
 		struct cpu_dbs_common_info *j_cdbs;
 		u64 cur_wall_time, cur_idle_time;
@@ -148,14 +140,6 @@ void dbs_check_cpu(struct dbs_data *dbs_data, int cpu)
 
 		load = 100 * (wall_time - idle_time) / wall_time;
 
-		if (dbs_data->cdata->governor == GOV_ONDEMAND) {
-			int freq_avg = __cpufreq_driver_getavg(policy, j);
-			if (freq_avg <= 0)
-				freq_avg = policy->cur;
-
-			load *= freq_avg;
-		}
-
 		if (load > max_load)
 			max_load = load;
 	}
@@ -176,6 +160,9 @@ void gov_queue_work(struct dbs_data *dbs_data, struct cpufreq_policy *policy,
 		unsigned int delay, bool all_cpus)
 {
 	int i;
+
+	if (!policy->governor_enabled)
+		return;
 
 	if (!all_cpus) {
 		__gov_queue_work(smp_processor_id(), dbs_data, delay);
@@ -401,6 +388,7 @@ int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 
 		mutex_lock(&dbs_data->mutex);
 		mutex_destroy(&cpu_cdbs->timer_mutex);
+		cpu_cdbs->cur_policy = NULL;
 
 		mutex_unlock(&dbs_data->mutex);
 

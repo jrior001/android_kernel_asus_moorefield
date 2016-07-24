@@ -126,10 +126,13 @@ void lpm070w425b_panel_reset(struct intel_dsi_device *dsi)
 	struct drm_device *dev = intel_dsi->base.base.dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
-	vlv_gpio_nc_write(dev_priv, 0x4160, 0x2000CC00);
-	vlv_gpio_nc_write(dev_priv, 0x4168, 0x00000004);
+	vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+					PANEL0_BKLTCTL_GPIONC_5_PCONF0, 0x2000CC00);
+	vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+					PANEL0_BKLTCTL_GPIONC_5_PAD, 0x00000004);
 	usleep_range(2000, 2500);
-	vlv_gpio_nc_write(dev_priv, 0x4168, 0x00000005);
+	vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+					PANEL0_BKLTCTL_GPIONC_5_PAD, 0x00000005);
 	msleep(20);
 }
 
@@ -139,8 +142,10 @@ void  lpm070w425b_disable_panel_power(struct intel_dsi_device *dsi)
 	struct drm_device *dev = intel_dsi->base.base.dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
-	vlv_gpio_nc_write(dev_priv, 0x4160, 0x2000CC00);
-	vlv_gpio_nc_write(dev_priv, 0x4168, 0x00000004);
+	vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+					PANEL0_BKLTCTL_GPIONC_5_PCONF0, 0x2000CC00);
+	vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+					PANEL0_BKLTCTL_GPIONC_5_PAD, 0x00000004);
 	usleep_range(2000, 2500);
 }
 

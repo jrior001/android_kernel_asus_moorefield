@@ -42,6 +42,9 @@
 #include <linux/iio/driver.h>
 #include <linux/iio/types.h>
 #include <linux/iio/consumer.h>
+#include <linux/thermal.h>
+#include <asm/intel_mid_thermal.h>
+
 
 #define DC_PMIC_ADC_EN_REG		0x82
 #define ADC_EN_VBAT			(1 << 7)
@@ -53,6 +56,8 @@
 
 #define DC_PMIC_ADC_CNTL_REG		0x84
 #define DC_PMIC_TSP_CNTL_REG		0x85
+#define ADC_GPIO0_WORK_MODE_EN		0xB4
+
 #define ADC_PMIC_TEMP_DATAH_REG		0x56
 #define ADC_PMIC_TEMP_DATAL_REG		0x57
 #define ADC_TSP_DATAH_REG		0x58
@@ -76,8 +81,10 @@
 #define ADC_BAT_CUR_DATAL_MASK		0x1F
 #define ADC_NON_BAT_CUR_DATAL_MASK	0x0F
 
-#define ADC_TS_PIN_CNRTL_REG           0x84
-#define ADC_TS_PIN_ON                  0xF2
+#define ADC_TS_PIN_CNRTL_REG		0x84
+#define ADC_TS_PIN_ON			0xF3
+#define ADC_TS_GPADC_PIN_ON		0xF2
+
 
 #define DEV_NAME			"dollar_cove_adc"
 
@@ -159,7 +166,11 @@ static int iio_dc_xpwr_gpadc_sample(struct iio_dev *indio_dev,
 		if (ch & (1 << i)) {
 			th = intel_mid_pmic_readb(gpadc_regmaps[i].rslth);
 			tl = intel_mid_pmic_readb(gpadc_regmaps[i].rsltl);
+#ifdef CONFIG_BTNS_PMIC
+			res->data[i] = (th << 4) + (tl & 0x0F);
+#else
 			res->data[i] = (th << 4) + ((tl >> 4) & 0x0F);
+#endif
 		}
 	}
 
@@ -229,6 +240,147 @@ static const struct iio_info dc_xpwr_adc_info = {
 	.driver_module = THIS_MODULE,
 };
 
+#if defined(CONFIG_BTNS_PMIC) && defined(CONFIG_THERMAL)
+#define THERM_CURVE_MAX_SAMPLES		18
+#define THERM_CURVE_MAX_VALUES		4
+
+/*
+ * This array represents the platform thermistor
+ * temperature and corresponding ADC value limits
+ */
+static int const therm_curve_data[THERM_CURVE_MAX_SAMPLES]
+	[THERM_CURVE_MAX_VALUES] = {
+	/* {temp_max, temp_min, adc_max, adc_min} */
+	{-15, -20, 682, 536},
+	{-10, -15, 536, 425},
+	{-5, -10, 425, 338},
+	{0, -5, 338, 272},
+	{5, 0, 272, 220},
+	{10, 5, 220, 179},
+	{15, 10, 179, 146},
+	{20, 15, 146, 120},
+	{25, 20, 120, 100},
+	{30, 25, 100, 83},
+	{35, 30, 83, 69},
+	{40, 35, 69, 58},
+	{45, 40, 58, 49},
+	{50, 45, 49, 41},
+	{55, 50, 41, 35},
+	{60, 55, 35, 30},
+	{65, 60, 30, 25},
+	{70, 65, 25, 22},
+};
+
+/* BTNS thermal sensor list */
+static struct intel_mid_thermal_sensor btns_sensors[] = {
+	{
+		.name = "SYSTHERM0",
+		.index = 0,
+		.direct = false,
+	},
+};
+
+static int conv_adc_temp(int adc_val, int adc_max, int adc_diff, int temp_diff)
+{
+	int ret;
+
+	ret = (adc_max - adc_val) * temp_diff;
+	return ret / adc_diff;
+}
+
+static bool is_valid_temp_adc_range(int val, int min, int max)
+{
+	if (val > min && val <= max)
+		return true;
+	else
+		return false;
+}
+
+static int dc_xpwr_get_plat_temp(int adc_val, int *temp)
+{
+	int i;
+
+	for (i = 0; i < THERM_CURVE_MAX_SAMPLES; i++) {
+		/* linear approximation for platform temperature */
+		if (is_valid_temp_adc_range(adc_val, therm_curve_data[i][3],
+					    therm_curve_data[i][2])) {
+
+			*temp = conv_adc_temp(adc_val, therm_curve_data[i][2],
+					     therm_curve_data[i][2] -
+					     therm_curve_data[i][3],
+					     therm_curve_data[i][0] -
+					     therm_curve_data[i][1]);
+
+			*temp += therm_curve_data[i][1];
+			break;
+		}
+	}
+
+	if (i >= THERM_CURVE_MAX_SAMPLES)
+		return -ERANGE;
+
+	return 0;
+
+}
+
+static int dcove_read_temp(struct thermal_zone_device *tzd,
+		long *temp)
+{
+		int ret, val;
+		struct iio_channel *indio_chan;
+
+		indio_chan = iio_channel_get(NULL, "SYSTEMP0");
+		if (IS_ERR_OR_NULL(indio_chan)) {
+			ret = PTR_ERR(indio_chan);
+			goto exit;
+		}
+		ret = iio_read_channel_raw(indio_chan, &val);
+		if (ret) {
+			dev_err(&tzd->device, "IIO channel read error\n");
+			goto err_exit;
+		}
+
+		dev_dbg(&tzd->device, "adc raw val=%x\n", val);
+	/*
+	 * Convert the GPADC/GPLDO0 pin ADC codes in to 10's of Kohms
+	 * by deviding the ADC code with 10 and pass it to
+	 * the Thermistor look up function.
+	 */
+	ret = dc_xpwr_get_plat_temp(val / 10, (int *)temp);
+	if (ret < 0)
+		dev_err(&tzd->device, "ADC conversion error%d\n", ret);
+	else {
+		/* We have to report the temperature in milli degree celsius. */
+		val = *temp;
+		*temp = val * 1000;
+		dev_dbg(&tzd->device, "ADC code:%d, TEMP:%ld\n", val, *temp);
+	}
+
+err_exit:
+		iio_channel_release(indio_chan);
+exit:
+		return ret;
+}
+
+
+
+static struct thermal_zone_device_ops btns_tzd_ops = {
+	.get_temp = dcove_read_temp,
+};
+
+static int dcove_register_thermal(void)
+{
+	struct thermal_zone_device *tzd;
+
+	tzd = thermal_zone_device_register(btns_sensors[0].name, 0, 0,
+			NULL, &btns_tzd_ops, NULL, 0, 0);
+	if (IS_ERR(tzd))
+		return PTR_ERR(tzd);
+
+	return 0;
+}
+#endif
+
 static int dc_xpwr_gpadc_probe(struct platform_device *pdev)
 {
 	int err;
@@ -247,7 +399,7 @@ static int dc_xpwr_gpadc_probe(struct platform_device *pdev)
 	mutex_init(&info->lock);
 
 	/* Current Source from TS pin always ON */
-	intel_mid_pmic_writeb(ADC_TS_PIN_CNRTL_REG, ADC_TS_PIN_ON);
+	intel_mid_pmic_writeb(ADC_TS_PIN_CNRTL_REG, ADC_TS_GPADC_PIN_ON);
 
 	/*
 	 * To enable X-power PMIC Fuel Gauge functionality
@@ -255,6 +407,7 @@ static int dc_xpwr_gpadc_probe(struct platform_device *pdev)
 	 * must be enabled all the time.
 	 */
 	intel_mid_pmic_writeb(DC_PMIC_ADC_EN_REG, ADC_EN_MASK);
+	intel_mid_pmic_writeb(DC_PMIC_TSP_CNTL_REG, ADC_GPIO0_WORK_MODE_EN);
 
 	indio_dev->dev.parent = &pdev->dev;
 	indio_dev->name = pdev->name;
@@ -271,6 +424,9 @@ static int dc_xpwr_gpadc_probe(struct platform_device *pdev)
 		goto err_array_unregister;
 
 	dev_info(&pdev->dev, "dc_xpwr adc probed\n");
+
+	/* Register BTNS platform sensor with the generic thermal framework */
+	dcove_register_thermal();
 
 	return 0;
 
@@ -342,5 +498,6 @@ static void __exit dc_pmic_adc_exit(void)
 module_exit(dc_pmic_adc_exit);
 
 MODULE_AUTHOR("Ramakrishna Pallala <ramakrishna.pallala@intel.com>");
+MODULE_AUTHOR("Asutosh Pathak <asutosh.pathak@intel.com>");
 MODULE_DESCRIPTION("Dollar Cove(Xpower) GPADC Driver");
 MODULE_LICENSE("GPL");

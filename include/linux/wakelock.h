@@ -44,9 +44,18 @@ static inline void wake_lock_destroy(struct wake_lock *lock)
 	wakeup_source_trash(&lock->ws);
 }
 
+#ifdef CONFIG_ASUS_FACTORY_MODE
+extern unsigned char release_all_wakelocks_sign;
+#endif
 static inline void wake_lock(struct wake_lock *lock)
 {
+#ifdef CONFIG_ASUS_FACTORY_MODE
+	if(release_all_wakelocks_sign == 0) {
+		__pm_stay_awake(&lock->ws);
+	}
+#else
 	__pm_stay_awake(&lock->ws);
+#endif
 }
 
 static inline void wake_lock_timeout(struct wake_lock *lock, long timeout)

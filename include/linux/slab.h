@@ -197,10 +197,13 @@ struct kmem_cache {
 #endif
 #else
 /*
- * SLUB allocates up to order 2 pages directly and otherwise
+ * SLUB allocates up to order 8 pages directly and otherwise
  * passes the request to the page allocator.
+ *
+ * To satisfy the frequent 16K/32K allocation request from usbnet, two
+ * more caches are created: kmalloc-16384 and kmalloc-32768.
  */
-#define KMALLOC_SHIFT_HIGH	(PAGE_SHIFT + 1)
+#define KMALLOC_SHIFT_HIGH	(PAGE_SHIFT + 3)
 #define KMALLOC_SHIFT_MAX	(MAX_ORDER + PAGE_SHIFT)
 #ifndef KMALLOC_SHIFT_LOW
 #define KMALLOC_SHIFT_LOW	3

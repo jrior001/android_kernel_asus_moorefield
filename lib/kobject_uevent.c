@@ -216,7 +216,6 @@ static int kobject_deliver_uevent(struct kobject *kobj,
 
 	return 0;
 }
-
 /**
  * ignore_buffer_uevent - don't buffer uevent
  *
@@ -230,14 +229,13 @@ static int kobject_deliver_uevent(struct kobject *kobj,
  */
 bool not_buffer_uevent(struct kobject *kobj, enum kobject_action action)
 {
-       if ((action == KOBJ_REMOVE) && kobject_name(kobj) &&
-               ((!strncmp(kobject_name(kobj), "rx-0", strlen(kobject_name(kobj)))) ||
-               (!strncmp(kobject_name(kobj), "tx-0", strlen(kobject_name)))))
-               return true;
+    if ((action == KOBJ_REMOVE) && kobject_name(kobj) &&
+            ((!strncmp(kobject_name(kobj), "rx-0", strlen(kobject_name(kobj)))) ||
+            (!strncmp(kobject_name(kobj), "tx-0", strlen(kobject_name)))))
+            return true;
 
-       return false;
+    return false;
 }
-
 
 /**
  * kobject_uevent_env - send an uevent with environmental data
@@ -370,7 +368,7 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
 	 */
 	mutex_lock(&uevent_buffer_mutex);
 	if (uevent_buffer && !not_buffer_uevent(kobj, action)) {
-		pr_debug(KERN_INFO "buffer uevent--\n");
+                pr_debug(KERN_INFO "buffer uevent--\n");
 		struct uevent_buffered *ub;
 		ub = kmalloc(sizeof(*ub), GFP_KERNEL);
 		if (!ub) {
@@ -515,10 +513,10 @@ int uevent_buffer_pm_notify(struct notifier_block *nb,
 {
 	mutex_lock(&uevent_buffer_mutex);
 	if (action == PM_SUSPEND_PREPARE) {
-		pr_debug(KERN_INFO "start buffer uevent--\n");
+                pr_debug(KERN_INFO "start buffer uevent--\n");
 		uevent_buffer = true;
 	} else if (action == PM_POST_SUSPEND) {
-		pr_debug(KERN_INFO "start re-send bufferred uevents--\n");
+                pr_debug(KERN_INFO "start re-send bufferred uevents--\n");
 		struct uevent_buffered *ub, *tmp;
 		list_for_each_entry_safe(ub, tmp, &uevent_buffer_list,
 					 buffer_list) {

@@ -27,7 +27,8 @@
 enum intel_mid_pmic_type {
 	NO_PMIC,
 	SHADY_COVE,
-	BASIN_COVE
+	BASIN_COVE,
+	DOLLAR_COVE
 };
 
 struct usb_phy_gp {
@@ -43,6 +44,7 @@ struct intel_dwc_otg_pdata {
 	int charger_detect_enable;
 	int gpio_cs;
 	int gpio_reset;
+	int gpio_typec_highicc;
 	int gpio_id;
 	int id;
 	int charging_compliance;

@@ -409,7 +409,7 @@ static inline void input_report_ff_status(struct input_dev *dev, unsigned int co
 
 static inline void input_report_switch(struct input_dev *dev, unsigned int code, int value)
 {
-        if (SW_LID == code)
+	if (SW_LID == code)
 		input_event(dev, EV_SW, code, value);
 	else
 		input_event(dev, EV_SW, code, !!value);

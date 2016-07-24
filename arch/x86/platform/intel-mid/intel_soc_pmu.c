@@ -138,7 +138,10 @@ MODULE_PARM_DESC(s0ix,
  * for such devices.
  */
 static inline bool pmu_power_down_lss_without_driver(int index,
-			int sub_sys_index, int sub_sys_pos, pci_power_t state)
+						     int sub_sys_index,
+						     int sub_sys_pos,
+						     pci_power_t state,
+						     unsigned short device)
 {
 	/* Ignore NC devices */
 	if (index < PMU1_MAX_DEVS)
@@ -147,6 +150,12 @@ static inline bool pmu_power_down_lss_without_driver(int index,
 	/* Only ignore D0i0 */
 	if (state != PCI_D0)
 		return false;
+
+	/* VIBRA not used in BTNS. Ignore VIBRA transition to D0 for BTNS */
+	if ((INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, PRO)
+	     || INTEL_MID_BOARD(2, PHONE, MRFL, BTNS, ENG))
+	    && (device == PCI_DEVICE_ID_INTEL_VIBRA_MRFLD))
+		return true;
 
 	/* HSI not used in MRFLD. IGNORE HSI Transition to D0 for MRFLD.
 	 * Sometimes it is turned ON during resume in the absence of a driver
@@ -1510,7 +1519,7 @@ int __ref pmu_pci_set_power_state(struct pci_dev *pdev, pci_power_t state)
 
 	/* Ignore D0i0 requests for LSS that have no drivers */
 	if (pmu_power_down_lss_without_driver(i, sub_sys_index,
-						sub_sys_pos, state))
+					      sub_sys_pos, state, pdev->device))
 		goto unlock;
 
 	if (pci_need_record_power_state(pdev)) {
@@ -2245,14 +2254,12 @@ static int mid_suspend_enter(suspend_state_t state)
 		/* one last check before entering standby */
 		if (pmu_ops->check_nc_sc_status) {
 			if (!(pmu_ops->check_nc_sc_status())) {
-				trace_printk("Device d0ix status check failed! Aborting Standby entry!\n");
-				WARN_ON(1);
+				trace_printk("Some SC/NC device(s) not in D0i3.\n");
 			}
 		}
 	}
 
 	trace_printk("s3_entry\n");
-	ret = gpiodump_show(NULL, NULL);
 	ret = standby_enter();
 	trace_printk("s3_exit %d\n", ret);
 	if (ret != 0)

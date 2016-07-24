@@ -3985,6 +3985,58 @@ drm_add_fake_info_node(struct drm_minor *minor,
 	return 0;
 }
 
+#define TIMESTAMP_BUFFER_LEN  100U
+
+ssize_t i915_timestamp_read(struct file *filp,
+		 char __user *ubuf,
+		 size_t max,
+		 loff_t *ppos)
+{
+	struct drm_device *dev = filp->private_data;
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	int len = 0;
+	char buf[TIMESTAMP_BUFFER_LEN] = {0,};
+	unsigned long flags;
+	u32 gpu_ts_hi, gpu_ts_lo, gpu_ts_hi_new;
+	u64 gpu_ts;
+	unsigned int cpu;
+	u32 sec, nsec;
+	u64 ftrace_ts;
+
+	local_irq_save(flags);
+	cpu = smp_processor_id();
+
+	gpu_ts_hi = I915_READ(RING_TIMESTAMP_HI(RENDER_RING_BASE));
+	gpu_ts_lo = I915_READ(RING_TIMESTAMP_LO(RENDER_RING_BASE));
+	gpu_ts_hi_new = I915_READ(RING_TIMESTAMP_HI(RENDER_RING_BASE));
+	if (gpu_ts_hi_new != gpu_ts_hi) {
+		gpu_ts_lo = I915_READ(RING_TIMESTAMP_LO(RENDER_RING_BASE));
+		gpu_ts_hi = gpu_ts_hi_new;
+	}
+	gpu_ts = (u64)gpu_ts_hi << 32 | gpu_ts_lo;
+
+	ftrace_ts = ftrace_now(cpu);
+	local_irq_restore(flags);
+
+	nsec = do_div(ftrace_ts, NSEC_PER_SEC);
+	sec = (u32) ftrace_ts;
+
+	len = snprintf(buf, TIMESTAMP_BUFFER_LEN,
+		      "CPU%03u %u.%09u s\nGPU %llu ticks\n",
+		      cpu, sec, nsec, gpu_ts);
+
+	return simple_read_from_buffer(ubuf, max, ppos,
+				       (const void *) buf, sizeof(buf));
+}
+
+static const struct file_operations i915_timestamp_fops = {
+	.owner = THIS_MODULE,
+	.open = simple_open,
+	.read = i915_timestamp_read,
+	.write = NULL,
+	.llseek = default_llseek,
+};
+
 static int i915_forcewake_open(struct inode *inode, struct file *file)
 {
 	struct drm_device *dev = inode->i_private;
@@ -4111,6 +4163,7 @@ static struct i915_debugfs_files {
 	{"i915_rps_init", &i915_rps_init_fops},
 	{"i915_dpst_api", &i915_dpst_fops},
 	{"i915_rpm_api", &i915_rpm_fops},
+	{"i915_timestamp", &i915_timestamp_fops},
 };
 
 int i915_debugfs_init(struct drm_minor *minor)

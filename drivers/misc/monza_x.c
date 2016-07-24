@@ -350,6 +350,7 @@ static const struct i2c_device_id i2c_monza_ids[] = {
 	{ "MNZX2000", MONZAX_2K_ADDR_NUM },
 	{ "MNZX8000", MONZAX_8K_ADDR_NUM },
 	{ "IMPJ0003", MONZAX_8K_ADDR_NUM },
+	{ "monzax", MONZAX_8K_ADDR_NUM },
 	{ /* END OF LIST */ }
 };
 MODULE_DEVICE_TABLE(i2c, i2c_monza_ids);

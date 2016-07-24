@@ -61,7 +61,6 @@ struct hsu_port_pin_cfg {
 	int rts_gpio;
 	int rts_alt;
 	bool lpm; /* enable low power mode gpio settings */
-	bool is_wake_irq_requested;
 	struct device *dev;
 	irq_handler_t wake_isr;
 };

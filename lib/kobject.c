@@ -558,6 +558,12 @@ static void kobject_cleanup(struct kobject *kobj)
 		pr_debug("kobject: '%s' (%p): auto cleanup 'remove' event\n",
 			 kobject_name(kobj), kobj);
 		kobject_uevent(kobj, KOBJ_REMOVE);
+
+#ifdef CONFIG_PM_SLEEP
+		/* if kobj was buffered in kobject_uevent_env, do not free it */
+		if (atomic_read(&kobj->kref.refcount) > 0)
+			return;
+#endif
 	}
 
 	/* remove from sysfs if the caller did not do it */
@@ -594,11 +600,10 @@ static void kobject_release(struct kref *kref)
 void kobject_put(struct kobject *kobj)
 {
 	if (kobj) {
-		if (!kobj->state_initialized) {
+		if (!kobj->state_initialized)
 			WARN(1, KERN_WARNING "kobject: '%s' (%p): is not "
 			       "initialized, yet kobject_put() is being "
 			       "called.\n", kobject_name(kobj), kobj);
-		}
 		kref_put(&kobj->kref, kobject_release);
 	}
 }

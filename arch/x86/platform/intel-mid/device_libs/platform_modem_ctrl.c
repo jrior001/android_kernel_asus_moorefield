@@ -127,9 +127,7 @@ static struct mdm_ctrl_cpu_data cpu_tangier = {
 	.gpio_rst_out_name = GPIO_RST_OUT,
 	.gpio_pwr_on_name = GPIO_PWR_ON,
 	.gpio_rst_bbn_name = GPIO_RST_BBN,
-	.gpio_cdump_name = GPIO_CDUMP_MRFL,
-        .gpio_apcdump_name = GPIO_AP_CDUMP
-
+	.gpio_cdump_name = GPIO_CDUMP_MRFL
 };
 
 static struct mdm_ctrl_cpu_data cpu_tangier_mdm2 = {
@@ -137,8 +135,7 @@ static struct mdm_ctrl_cpu_data cpu_tangier_mdm2 = {
 	.gpio_pwr_on_name = GPIO_PWR_ON_2,
 	.gpio_rst_bbn_name = GPIO_RST_BBN"2",
 	.gpio_cdump_name = GPIO_CDUMP_MRFL"2",
-	.gpio_on_key_name = GPIO_ON_KEY"2",
-        .gpio_apcdump_name = GPIO_AP_CDUMP_2
+	.gpio_on_key_name = GPIO_ON_KEY"2"
 };
 
 void *modem_data[] = {
@@ -249,15 +246,11 @@ int mcd_register_finalize(struct mcd_base_info const *info)
 			    get_gpio_by_name(cpu_data->gpio_rst_bbn_name);
 			cpu_data->gpio_cdump =
 			    get_gpio_by_name(cpu_data->gpio_cdump_name);
-                        cpu_data->gpio_apcdump =
-			    get_gpio_by_name(cpu_data->gpio_apcdump_name);
-
 
 			if ((cpu_data->gpio_rst_out == -1) ||
 				(cpu_data->gpio_pwr_on == -1) ||
 				(cpu_data->gpio_rst_bbn == -1) ||
-				(cpu_data->gpio_cdump == -1) ||
-                                (cpu_data->gpio_apcdump == -1))
+				(cpu_data->gpio_cdump == -1))
 				ret = -1;
 
 			/* gpio on_key is only used by Modem 2230 */

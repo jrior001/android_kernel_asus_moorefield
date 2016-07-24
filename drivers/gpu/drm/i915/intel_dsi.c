@@ -92,6 +92,48 @@ static void intel_dsi_hot_plug(struct intel_encoder *encoder)
 	DRM_DEBUG_KMS("\n");
 }
 
+int intel_get_bits_per_pixel(struct intel_dsi *intel_dsi)
+{
+	int bits_per_pixel;		/* in bits */
+
+	if (intel_dsi->pixel_format == VID_MODE_FORMAT_RGB888)
+		bits_per_pixel = 24;
+	else if (intel_dsi->pixel_format == VID_MODE_FORMAT_RGB666_LOOSE)
+		bits_per_pixel = 24;
+	else if (intel_dsi->pixel_format == VID_MODE_FORMAT_RGB666)
+		bits_per_pixel = 18;
+	else if (intel_dsi->pixel_format == VID_MODE_FORMAT_RGB565)
+		bits_per_pixel = 16;
+	else
+		return -ECHRNG;
+
+	return bits_per_pixel;
+}
+
+void adjust_pclk_for_dual_link(struct intel_dsi *intel_dsi,
+				struct drm_display_mode *mode, u32 *pclk)
+{
+	struct drm_device *dev = intel_dsi->base.base.dev;
+
+	/* In dual link mode each port needs half of pixel clock */
+	*pclk = *pclk / 2;
+
+	/* in case of C0 and above setting we can enable pixel_overlap
+	 * if needed by panel. In this case we need to increase the pixel
+	 * clock for extra pixels
+	 */
+	if (IS_VALLEYVIEW_C0(dev) && (intel_dsi->dual_link &
+					MIPI_DUAL_LINK_FRONT_BACK)) {
+		*pclk += DIV_ROUND_UP(mode->vtotal * intel_dsi->pixel_overlap *
+							mode->vrefresh, 1000);
+	}
+}
+
+void adjust_pclk_for_burst_mode(u32 *pclk, u16 burst_mode_ratio)
+{
+	*pclk = DIV_ROUND_UP(*pclk * burst_mode_ratio, 100);
+}
+
 static bool intel_dsi_compute_config(struct intel_encoder *encoder,
 				     struct intel_crtc_config *config)
 {
@@ -161,6 +203,29 @@ static void band_gap_reset(struct drm_i915_private *dev_priv)
 	mutex_unlock(&dev_priv->dpio_lock);
 }
 
+static void intel_dsi_power_on(struct intel_dsi_device *dsi)
+{
+	struct intel_dsi *intel_dsi = container_of(dsi, struct intel_dsi, dev);
+	struct drm_device *dev = intel_dsi->base.base.dev;
+	struct drm_i915_private *dev_priv = dev->dev_private;
+
+	if (BYT_CR_CONFIG) {
+		/*  cabc disable */
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+				PANEL1_VDDEN_GPIONC_9_PCONF0, VLV_GPIO_CFG);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+				PANEL1_VDDEN_GPIONC_9_PAD, VLV_GPIO_INPUT_DIS);
+
+		/* panel enable */
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+				PANEL1_BKLTCTL_GPIONC_11_PCONF0, VLV_GPIO_CFG);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+				PANEL1_BKLTCTL_GPIONC_11_PAD, VLV_GPIO_INPUT_EN);
+		udelay(500);
+	} else
+		intel_mid_pmic_writeb(PMIC_PANEL_EN, 0x01);
+}
+
 void intel_dsi_device_ready(struct intel_encoder *encoder)
 {
 	struct drm_i915_private *dev_priv = encoder->base.dev->dev_private;
@@ -178,22 +243,9 @@ void intel_dsi_device_ready(struct intel_encoder *encoder)
 
 	band_gap_reset(dev_priv);
 
-#ifdef CONFIG_CRYSTAL_COVE
-	if (BYT_CR_CONFIG) {
-		/*  cabc disable */
-		vlv_gpio_nc_write(dev_priv, GPIO_NC_9_PCONF0, 0x2000CC00);
-		vlv_gpio_nc_write(dev_priv, GPIO_NC_9_PAD, 0x00000004);
+	if (intel_dsi->dev.dev_ops->power_on)
+		intel_dsi->dev.dev_ops->power_on(&intel_dsi->dev);
 
-		/* panel enable */
-		vlv_gpio_nc_write(dev_priv, GPIO_NC_11_PCONF0, 0x2000CC00);
-		vlv_gpio_nc_write(dev_priv, GPIO_NC_11_PAD, 0x00000005);
-		udelay(500);
-	} else
-		intel_mid_pmic_writeb(PMIC_PANEL_EN, 0x01);
-#else
-	/* need to code for BYT-CR for example where things have changed */
-	DRM_ERROR("PANEL Enable to supported yet\n");
-#endif
 	msleep(intel_dsi->panel_on_delay);
 
 	if (intel_dsi->dev.dev_ops->panel_reset)
@@ -365,6 +417,9 @@ static void intel_dsi_enable(struct intel_encoder *encoder)
 			(intel_dsi->backlight_on_delay * 1000) + 500);
 
 	intel_panel_enable_backlight(dev, pipe);
+
+	if (intel_dsi->dev.dev_ops->enable_backlight)
+		intel_dsi->dev.dev_ops->enable_backlight(&intel_dsi->dev);
 }
 
 static void intel_dsi_disable(struct intel_encoder *encoder)
@@ -390,6 +445,23 @@ static void intel_dsi_disable(struct intel_encoder *encoder)
 		usleep_range(1000, 1500);
 
 	}
+}
+
+static void intel_dsi_power_off(struct intel_dsi_device *dsi)
+{
+	struct intel_dsi *intel_dsi = container_of(dsi, struct intel_dsi, dev);
+	struct drm_device *dev = intel_dsi->base.base.dev;
+	struct drm_i915_private *dev_priv = dev->dev_private;
+
+	if (BYT_CR_CONFIG) {
+		/* Disable Panel */
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+				PANEL1_BKLTCTL_GPIONC_11_PCONF0, VLV_GPIO_CFG);
+		vlv_gpio_write(dev_priv, IOSF_PORT_GPIO_NC,
+				PANEL1_BKLTCTL_GPIONC_11_PAD, VLV_GPIO_INPUT_DIS);
+		udelay(500);
+	} else
+		intel_mid_pmic_writeb(PMIC_PANEL_EN, 0x00);
 }
 
 void intel_dsi_clear_device_ready(struct intel_encoder *encoder)
@@ -443,18 +515,9 @@ void intel_dsi_clear_device_ready(struct intel_encoder *encoder)
 	if (intel_dsi->dev.dev_ops->disable_panel_power)
 		intel_dsi->dev.dev_ops->disable_panel_power(&intel_dsi->dev);
 
-#ifdef CONFIG_CRYSTAL_COVE
-	if (BYT_CR_CONFIG) {
-		/* Disable Panel */
-		vlv_gpio_nc_write(dev_priv, GPIO_NC_11_PCONF0, 0x2000CC00);
-		vlv_gpio_nc_write(dev_priv, GPIO_NC_11_PAD, 0x00000004);
-		udelay(500);
-	} else
-		intel_mid_pmic_writeb(PMIC_PANEL_EN, 0x00);
-#else
-	/* need to code for BYT-CR for example where things have changed */
-	DRM_ERROR("PANEL Disable to supported yet\n");
-#endif
+	if (intel_dsi->dev.dev_ops->power_off)
+		intel_dsi->dev.dev_ops->power_off(&intel_dsi->dev);
+
 	msleep(intel_dsi->panel_off_delay);
 	msleep(intel_dsi->panel_pwr_cycle_delay);
 }
@@ -1356,6 +1419,13 @@ bool intel_dsi_init(struct drm_device *dev)
 			intel_dsi_drrs_init(intel_connector, downclock_mode);
 		else
 			DRM_DEBUG_KMS("Downclock_mode is not found\n");
+	}
+
+	if (dev_priv->vbt.dsi.seq_version < 3) {
+		intel_dsi->dev.dev_ops->power_on =
+				intel_dsi_power_on;
+		intel_dsi->dev.dev_ops->power_off =
+				intel_dsi_power_off;
 	}
 
 	intel_panel_init(&intel_connector->panel, fixed_mode, downclock_mode);

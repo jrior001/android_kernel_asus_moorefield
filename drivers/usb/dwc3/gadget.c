@@ -287,6 +287,10 @@ void dwc3_gadget_giveback(struct dwc3_ep *dep, struct dwc3_request *req,
 			req->request.length, status);
 
 	spin_unlock(&dwc->lock);
+	if (!req->request.complete) {
+		spin_lock(&dwc->lock);
+		return;
+	}
 	req->request.complete(&dep->endpoint, &req->request);
 	spin_lock(&dwc->lock);
 }
@@ -646,12 +650,11 @@ static int __dwc3_gadget_ep_enable(struct dwc3_ep *dep,
 		if (!usb_endpoint_xfer_isoc(desc))
 			return 0;
 
-		memset(&trb_link, 0, sizeof(trb_link));
-
 		/* Link TRB for ISOC. The HWO bit is never reset */
 		trb_st_hw = &dep->trb_pool[0];
 
 		trb_link = &dep->trb_pool[DWC3_TRB_NUM - 1];
+		memset(trb_link, 0, sizeof(*trb_link));
 
 		trb_link->bpl = lower_32_bits(dwc3_trb_dma_offset(dep, trb_st_hw));
 		trb_link->bph = upper_32_bits(dwc3_trb_dma_offset(dep, trb_st_hw));
@@ -707,6 +710,10 @@ static int __dwc3_gadget_ep_disable(struct dwc3_ep *dep)
 	}
 
 	dwc3_remove_requests(dwc, dep);
+
+	/* make sure HW endpoint isn't stalled */
+	if (dep->flags & DWC3_EP_STALL)
+		__dwc3_gadget_ep_set_halt(dep, 0, false);
 
 	reg = dwc3_readl(dwc->regs, DWC3_DALEPENA);
 	reg &= ~DWC3_DALEPENA_EP(dep->number);
@@ -1021,15 +1028,8 @@ static void dwc3_prepare_trbs(struct dwc3_ep *dep, bool starting)
 
 				if (i == (request->num_mapped_sgs - 1) ||
 						sg_is_last(s)) {
-					/* FIXME: After the first TRB is made
-					 * the USB request is removed from
-					 * request_list: we can't check if the
-					 * request is the last, but we could
-					 * check if the list is empty afterward
-					 * This is critical to get an interrupt
-					 * after the sg list is sent.
-					 */
-					last_one = true;
+					if (list_empty(&dep->request_list))
+						last_one = true;
 					chain = false;
 				}
 
@@ -1046,6 +1046,9 @@ static void dwc3_prepare_trbs(struct dwc3_ep *dep, bool starting)
 				if (last_one)
 					break;
 			}
+
+			if (last_one)
+				break;
 		} else {
 			unsigned csp = false;
 
@@ -1519,7 +1522,7 @@ out0:
 	return ret;
 }
 
-int __dwc3_gadget_ep_set_halt(struct dwc3_ep *dep, int value)
+int __dwc3_gadget_ep_set_halt(struct dwc3_ep *dep, int value, int protocol)
 {
 	struct dwc3_gadget_ep_cmd_params	params;
 	struct dwc3				*dwc = dep->dwc;
@@ -1528,6 +1531,14 @@ int __dwc3_gadget_ep_set_halt(struct dwc3_ep *dep, int value)
 	memset(&params, 0x00, sizeof(params));
 
 	if (value) {
+		if (!protocol && ((dep->direction && dep->flags & DWC3_EP_BUSY) ||
+				(!list_empty(&dep->req_queued) ||
+				 !list_empty(&dep->request_list)))) {
+			dev_dbg(dwc->dev, "%s: pending request, cannot halt\n",
+					dep->name);
+			return -EAGAIN;
+		}
+
 		ret = dwc3_send_gadget_ep_cmd(dwc, dep->number,
 			DWC3_DEPCMD_SETSTALL, &params);
 		if (ret)
@@ -1537,9 +1548,6 @@ int __dwc3_gadget_ep_set_halt(struct dwc3_ep *dep, int value)
 		else
 			dep->flags |= DWC3_EP_STALL;
 	} else {
-		if (dep->flags & DWC3_EP_WEDGE)
-			return 0;
-
 		ret = dwc3_send_gadget_ep_cmd(dwc, dep->number,
 			DWC3_DEPCMD_CLEARSTALL, &params);
 		if (ret)
@@ -1547,7 +1555,7 @@ int __dwc3_gadget_ep_set_halt(struct dwc3_ep *dep, int value)
 					value ? "set" : "clear",
 					dep->name);
 		else
-			dep->flags &= ~DWC3_EP_STALL;
+			dep->flags &= ~(DWC3_EP_STALL | DWC3_EP_WEDGE);
 	}
 
 	return ret;
@@ -1570,7 +1578,7 @@ static int dwc3_gadget_ep_set_halt(struct usb_ep *ep, int value)
 		goto out;
 	}
 
-	ret = __dwc3_gadget_ep_set_halt(dep, value);
+	ret = __dwc3_gadget_ep_set_halt(dep, value, false);
 out:
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
@@ -1590,7 +1598,7 @@ static int dwc3_gadget_ep_set_wedge(struct usb_ep *ep)
 	if (dep->number == 0 || dep->number == 1)
 		return dwc3_gadget_ep0_set_halt(ep, 1);
 	else
-		return dwc3_gadget_ep_set_halt(ep, 1);
+		return __dwc3_gadget_ep_set_halt(dep, 1, false);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -3653,7 +3661,7 @@ int dwc3_runtime_resume(struct device *device)
 			dwc3_writel(dwc->regs, DWC3_DALEPENA, reg);
 
 			if (dep->flags_backup & DWC3_EP_STALL)
-				__dwc3_gadget_ep_set_halt(dep, 1);
+				__dwc3_gadget_ep_set_halt(dep, 1, false);
 
 			if (dep->flags_backup & DWC3_EP_BUSY) {
 				struct dwc3_request			*req;

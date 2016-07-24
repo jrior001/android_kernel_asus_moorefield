@@ -267,7 +267,7 @@ static ssize_t force_ro_show(struct device *dev, struct device_attribute *attr,
 		return -EINVAL;
 
 
-	ret = snprintf(buf, PAGE_SIZE, "%d",
+	ret = snprintf(buf, PAGE_SIZE, "%d\n",
 		       get_disk_ro(dev_to_disk(dev)) ^
 		       md->read_only);
 	mmc_blk_put(md);
@@ -856,7 +856,7 @@ static int mmc_blk_cmd_error(struct request *req, const char *name, int error,
  * Otherwise we don't understand what happened, so abort.
  */
 static int mmc_blk_cmd_recovery(struct mmc_card *card, struct request *req,
-	struct mmc_blk_request *brq, int *ecc_err)
+	struct mmc_blk_request *brq, int *ecc_err, int *gen_err)
 {
 	bool prev_cmd_status_valid = true;
 	u32 status, stop_status = 0;
@@ -894,6 +894,16 @@ static int mmc_blk_cmd_recovery(struct mmc_card *card, struct request *req,
 	    (brq->cmd.resp[0] & R1_CARD_ECC_FAILED))
 		*ecc_err = 1;
 
+	/* Flag General errors */
+	if (!mmc_host_is_spi(card->host) && rq_data_dir(req) != READ)
+		if ((status & R1_ERROR) ||
+			(brq->stop.resp[0] & R1_ERROR)) {
+			pr_err("%s: %s: general error sending stop or status command, stop cmd response %#x, card status %#x\n",
+			       req->rq_disk->disk_name, __func__,
+			       brq->stop.resp[0], status);
+			*gen_err = 1;
+		}
+
 	/*
 	 * Check the current card state.  If it is in some data transfer
 	 * mode, tell it to stop (and hopefully transition back to TRAN.)
@@ -913,6 +923,13 @@ static int mmc_blk_cmd_recovery(struct mmc_card *card, struct request *req,
 			return ERR_ABORT;
 		if (stop_status & R1_CARD_ECC_FAILED)
 			*ecc_err = 1;
+		if (!mmc_host_is_spi(card->host) && rq_data_dir(req) != READ)
+			if (stop_status & R1_ERROR) {
+				pr_err("%s: %s: general error sending stop command, stop cmd response %#x\n",
+				       req->rq_disk->disk_name, __func__,
+				       stop_status);
+				*gen_err = 1;
+			}
 	}
 
 	/* Check for set block count errors */
@@ -1081,7 +1098,7 @@ int mmc_access_rpmb(struct mmc_queue *mq)
 {
 	struct mmc_blk_data *md = mq->data;
 	/*
-	 * If this is a RPMB partition access, return ture
+	 * If this is a RPMB partition access, return true
 	 */
 	if (md && md->part_type == EXT_CSD_PART_CONFIG_ACC_RPMB)
 		return true;
@@ -1118,6 +1135,88 @@ int mmc_rpmb_req_handle(struct device *emmc, struct mmc_ioc_rpmb_req *req)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(mmc_rpmb_req_handle);
+
+int mmc_single_block_access(struct device *mmc, bool read, u32 addr, u8 *buf,
+		u32 buf_len)
+{
+	int ret = 0;
+	struct gendisk *disk    = NULL;
+	struct mmc_blk_data *md = NULL;
+	struct mmc_card *card = NULL;
+	struct mmc_request mrq = {0};
+	struct mmc_command cmd = {0};
+	struct mmc_command stop = {0};
+	struct mmc_data data = {0};
+	struct scatterlist sg;
+
+	if (!mmc)
+		return -EINVAL;
+
+	if (buf_len != 512)
+		return -EFAULT;
+
+	disk = dev_to_disk(mmc);
+	if (!disk) {
+		pr_err("%s: No MMC device found\n", __func__);
+		return -ENODEV;
+	}
+
+	md = mmc_blk_get(disk);
+	if (!md) {
+		pr_err("%s: No gendisk found\n", __func__);
+		return -ENODEV;
+	}
+
+	card = md->queue.card;
+	if (!card || !mmc_card_mmc(card)) {
+		pr_err("%s: No mmc card found\n", __func__);
+		mmc_blk_put(md);
+		return -ENODEV;
+	}
+
+	mmc_claim_host(card->host);
+
+	ret = mmc_blk_part_switch(card, md);
+	if (ret) {
+		pr_err("%s: Cannot switch partition(%d)!\n", mmc_hostname(card->host), ret);
+		goto out;
+	}
+
+	ret = mmc_set_blocklen(card, 512);
+	if (ret) {
+		pr_err("%s: Cannot set block length(%d)!\n", mmc_hostname(card->host), ret);
+		goto out;
+	}
+
+	mrq.cmd = &cmd;
+	mrq.data = &data;
+	mrq.stop = &stop;
+
+	sg_init_one(&sg, buf, 512);
+
+	mrq.cmd->opcode = read ? MMC_READ_SINGLE_BLOCK : MMC_WRITE_BLOCK;
+	mrq.cmd->arg = addr;
+	if (!mmc_card_blockaddr(card))
+		mrq.cmd->arg <<= 9;
+	mrq.cmd->flags = MMC_RSP_R1 | MMC_CMD_ADTC;
+	mrq.stop = NULL;
+	mrq.data->blksz = 512;
+	mrq.data->blocks = 1;
+	mrq.data->flags = read ? MMC_DATA_READ : MMC_DATA_WRITE;
+	mrq.data->sg = &sg;
+	mrq.data->sg_len = 1;
+
+	mmc_set_data_timeout(mrq.data, card);
+
+	mmc_wait_for_req(card->host, &mrq);
+
+out:
+	mmc_release_host(card->host);
+	mmc_blk_put(md);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mmc_single_block_access);
 
 static int mmc_blk_issue_discard_rq(struct mmc_queue *mq, struct request *req)
 {
@@ -1303,7 +1402,7 @@ static int mmc_blk_err_check(struct mmc_card *card,
 						    mmc_active);
 	struct mmc_blk_request *brq = &mq_mrq->brq;
 	struct request *req = mq_mrq->req;
-	int ecc_err = 0;
+	int ecc_err = 0, gen_err = 0;
 
 	/*
 	 * sbc.error indicates a problem with the set block count
@@ -1317,7 +1416,7 @@ static int mmc_blk_err_check(struct mmc_card *card,
 	 */
 	if (brq->sbc.error || brq->cmd.error || brq->stop.error ||
 	    brq->data.error) {
-		switch (mmc_blk_cmd_recovery(card, req, brq, &ecc_err)) {
+		switch (mmc_blk_cmd_recovery(card, req, brq, &ecc_err, &gen_err)) {
 		case ERR_RETRY:
 			return MMC_BLK_RETRY;
 		case ERR_ABORT:
@@ -1349,6 +1448,14 @@ static int mmc_blk_err_check(struct mmc_card *card,
 		u32 status;
 		unsigned long timeout;
 
+		/* Check stop command response */
+		if (brq->stop.resp[0] & R1_ERROR) {
+			pr_err("%s: %s: general error sending stop command, stop cmd response %#x\n",
+			       req->rq_disk->disk_name, __func__,
+			       brq->stop.resp[0]);
+			gen_err = 1;
+		}
+
 		timeout = jiffies + msecs_to_jiffies(MMC_BLK_TIMEOUT_MS);
 		do {
 			int err = get_card_status(card, &status, 5);
@@ -1356,6 +1463,13 @@ static int mmc_blk_err_check(struct mmc_card *card,
 				pr_err("%s: error %d requesting status\n",
 				       req->rq_disk->disk_name, err);
 				return MMC_BLK_CMD_ERR;
+			}
+
+			if (status & R1_ERROR) {
+				pr_err("%s: %s: general error sending status command, card status %#x\n",
+				       req->rq_disk->disk_name, __func__,
+				       status);
+				gen_err = 1;
 			}
 
 			/* Timeout if the device never becomes ready for data
@@ -1375,6 +1489,13 @@ static int mmc_blk_err_check(struct mmc_card *card,
 			 */
 		} while (!(status & R1_READY_FOR_DATA) ||
 			 (R1_CURRENT_STATE(status) == R1_STATE_PRG));
+	}
+
+	/* if general error occurs, retry the write operation. */
+	if (gen_err) {
+		pr_warn("%s: retrying write for general error\n",
+				req->rq_disk->disk_name);
+		return MMC_BLK_RETRY;
 	}
 
 	if (brq->data.error) {
@@ -2126,7 +2247,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_card *card = md->queue.card;
 	struct mmc_host *host = card->host;
 	unsigned long flags;
-	unsigned int cmd_flags = 0;
+	unsigned int cmd_flags = req ? req->cmd_flags : 0;
 
 #ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
 	if (mmc_bus_needs_resume(card->host))
@@ -2155,7 +2276,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	}
 
 	mq->flags &= ~MMC_QUEUE_NEW_REQUEST;
-	if (req && req->cmd_flags & REQ_DISCARD) {
+	if (cmd_flags & REQ_DISCARD) {
 		/* complete ongoing async transfer before issuing discard */
 		if (card->host->areq)
 			mmc_blk_issue_rw_rq(mq, NULL);
@@ -2164,7 +2285,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 			ret = mmc_blk_issue_secdiscard_rq(mq, req);
 		else
 			ret = mmc_blk_issue_discard_rq(mq, req);
-	} else if (req && req->cmd_flags & REQ_FLUSH) {
+	} else if (cmd_flags & REQ_FLUSH) {
 		/* complete ongoing async transfer before issuing flush */
 		if (card->host->areq)
 			mmc_blk_issue_rw_rq(mq, NULL);
@@ -2180,7 +2301,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 
 out:
 	if ((!req && !(mq->flags & MMC_QUEUE_NEW_REQUEST)) ||
-	     (req && (cmd_flags & MMC_REQ_SPECIAL_MASK)))
+	     (cmd_flags & MMC_REQ_SPECIAL_MASK))
 		/*
 		 * Release host when there are no more requests
 		 * and after special request(discard, flush) is done.

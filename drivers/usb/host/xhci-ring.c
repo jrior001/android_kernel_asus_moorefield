@@ -1209,9 +1209,8 @@ static void handle_reset_ep_completion(struct xhci_hcd *xhci,
 				false);
 		xhci_ring_cmd_db(xhci);
 	} else {
-		/* Clear our internal halted state and restart the ring(s) */
+		/* Clear our internal halted state */
 		xhci->devs[slot_id]->eps[ep_index].ep_state &= ~EP_HALTED;
-		ring_doorbell_for_active_rings(xhci, slot_id, ep_index);
 	}
 }
 
@@ -2137,7 +2136,7 @@ static int process_ctrl_td(struct xhci_hcd *xhci, struct xhci_td *td,
 	if (event_trb != ep_ring->dequeue) {
 		/* The event was for the status stage */
 		if (event_trb == td->last_trb) {
-			if (td->urb->actual_length != 0) {
+			if (td->urb_length_set) {
 				/* Don't overwrite a previously set error code
 				 */
 				if ((*status == -EINPROGRESS || *status == 0) &&
@@ -2151,7 +2150,13 @@ static int process_ctrl_td(struct xhci_hcd *xhci, struct xhci_td *td,
 					td->urb->transfer_buffer_length;
 			}
 		} else {
-		/* Maybe the event was for the data stage? */
+			/*
+			 * Maybe the event was for the data stage? If so, update
+			 * already the actual_length of the URB and flag it as
+			 * set, so that it is not overwritten in the event for
+			 * the last TRB.
+			 */
+			td->urb_length_set = true;
 			td->urb->actual_length =
 				td->urb->transfer_buffer_length -
 				EVENT_TRB_LEN(le32_to_cpu(event->transfer_len));
@@ -2607,7 +2612,8 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 		 * last TRB of the previous TD. The command completion handle
 		 * will take care the rest.
 		 */
-		if (!event_seg && trb_comp_code == COMP_STOP_INVAL) {
+		if (!event_seg && (trb_comp_code == COMP_STOP ||
+				   trb_comp_code == COMP_STOP_INVAL)) {
 			ret = 0;
 			goto cleanup;
 		}
@@ -3273,9 +3279,11 @@ static int queue_bulk_sg_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	struct xhci_td *td;
 	struct scatterlist *sg;
 	int num_sgs;
-	int trb_buff_len, this_sg_len, running_total;
+	int trb_buff_len, this_sg_len, running_total, ret;
 	unsigned int total_packet_count;
+	bool zero_length_needed;
 	bool first_trb;
+	int last_trb_num;
 	u64 addr;
 	bool more_trbs_coming;
 
@@ -3291,13 +3299,27 @@ static int queue_bulk_sg_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	total_packet_count = DIV_ROUND_UP(urb->transfer_buffer_length,
 			usb_endpoint_maxp(&urb->ep->desc));
 
-	trb_buff_len = prepare_transfer(xhci, xhci->devs[slot_id],
+	ret = prepare_transfer(xhci, xhci->devs[slot_id],
 			ep_index, urb->stream_id,
 			num_trbs, urb, 0, mem_flags);
-	if (trb_buff_len < 0)
-		return trb_buff_len;
+	if (ret < 0)
+		return ret;
 
 	urb_priv = urb->hcpriv;
+
+	/* Deal with URB_ZERO_PACKET - need one more td/trb */
+	zero_length_needed = urb->transfer_flags & URB_ZERO_PACKET &&
+		urb_priv->length == 2;
+	if (zero_length_needed) {
+		num_trbs++;
+		xhci_dbg(xhci, "Creating zero length td.\n");
+		ret = prepare_transfer(xhci, xhci->devs[slot_id],
+				ep_index, urb->stream_id,
+				1, urb, 1, mem_flags);
+		if (ret < 0)
+			return ret;
+	}
+
 	td = urb_priv->td[0];
 
 	/*
@@ -3327,6 +3349,7 @@ static int queue_bulk_sg_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		trb_buff_len = urb->transfer_buffer_length;
 
 	first_trb = true;
+	last_trb_num = zero_length_needed ? 2 : 1;
 	/* Queue the first TRB, even if it's zero-length */
 	do {
 		u32 field = 0;
@@ -3344,11 +3367,14 @@ static int queue_bulk_sg_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		/* Chain all the TRBs together; clear the chain bit in the last
 		 * TRB to indicate it's the last TRB in the chain.
 		 */
-		if (num_trbs > 1) {
+		if (num_trbs > last_trb_num) {
 			field |= TRB_CHAIN;
-		} else {
-			/* FIXME - add check for ZERO_PACKET flag before this */
+		} else if (num_trbs == last_trb_num) {
 			td->last_trb = ep_ring->enqueue;
+			field |= TRB_IOC;
+		} else if (zero_length_needed && num_trbs == 1) {
+			trb_buff_len = 0;
+			urb_priv->td[1]->last_trb = ep_ring->enqueue;
 			field |= TRB_IOC;
 		}
 
@@ -3411,7 +3437,7 @@ static int queue_bulk_sg_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		if (running_total + trb_buff_len > urb->transfer_buffer_length)
 			trb_buff_len =
 				urb->transfer_buffer_length - running_total;
-	} while (running_total < urb->transfer_buffer_length);
+	} while (num_trbs > 0);
 
 	check_trb_math(urb, num_trbs, running_total);
 	giveback_first_trb(xhci, slot_id, ep_index, urb->stream_id,
@@ -3429,7 +3455,9 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	int num_trbs;
 	struct xhci_generic_trb *start_trb;
 	bool first_trb;
+	int last_trb_num;
 	bool more_trbs_coming;
+	bool zero_length_needed;
 	int start_cycle;
 	u32 field, length_field;
 
@@ -3460,7 +3488,6 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		num_trbs++;
 		running_total += TRB_MAX_BUFF_SIZE;
 	}
-	/* FIXME: this doesn't deal with URB_ZERO_PACKET - need one more */
 
 	ret = prepare_transfer(xhci, xhci->devs[slot_id],
 			ep_index, urb->stream_id,
@@ -3469,6 +3496,20 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		return ret;
 
 	urb_priv = urb->hcpriv;
+
+	/* Deal with URB_ZERO_PACKET - need one more td/trb */
+	zero_length_needed = urb->transfer_flags & URB_ZERO_PACKET &&
+		urb_priv->length == 2;
+	if (zero_length_needed) {
+		num_trbs++;
+		xhci_dbg(xhci, "Creating zero length td.\n");
+		ret = prepare_transfer(xhci, xhci->devs[slot_id],
+				ep_index, urb->stream_id,
+				1, urb, 1, mem_flags);
+		if (ret < 0)
+			return ret;
+	}
+
 	td = urb_priv->td[0];
 
 	/*
@@ -3490,7 +3531,7 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		trb_buff_len = urb->transfer_buffer_length;
 
 	first_trb = true;
-
+	last_trb_num = zero_length_needed ? 2 : 1;
 	/* Queue the first TRB, even if it's zero-length */
 	do {
 		u32 remainder = 0;
@@ -3507,11 +3548,14 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		/* Chain all the TRBs together; clear the chain bit in the last
 		 * TRB to indicate it's the last TRB in the chain.
 		 */
-		if (num_trbs > 1) {
+		if (num_trbs > last_trb_num) {
 			field |= TRB_CHAIN;
-		} else {
-			/* FIXME - add check for ZERO_PACKET flag before this */
+		} else if (num_trbs == last_trb_num) {
 			td->last_trb = ep_ring->enqueue;
+			field |= TRB_IOC;
+		} else if (zero_length_needed && num_trbs == 1) {
+			trb_buff_len = 0;
+			urb_priv->td[1]->last_trb = ep_ring->enqueue;
 			field |= TRB_IOC;
 		}
 
@@ -3550,7 +3594,7 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		trb_buff_len = urb->transfer_buffer_length - running_total;
 		if (trb_buff_len > TRB_MAX_BUFF_SIZE)
 			trb_buff_len = TRB_MAX_BUFF_SIZE;
-	} while (running_total < urb->transfer_buffer_length);
+	} while (num_trbs > 0);
 
 	check_trb_math(urb, num_trbs, running_total);
 	giveback_first_trb(xhci, slot_id, ep_index, urb->stream_id,
@@ -3710,7 +3754,7 @@ static unsigned int xhci_get_burst_count(struct xhci_hcd *xhci,
 		return 0;
 
 	max_burst = urb->ep->ss_ep_comp.bMaxBurst;
-	return roundup(total_packet_count, max_burst + 1) - 1;
+	return DIV_ROUND_UP(total_packet_count, max_burst + 1) - 1;
 }
 
 /*

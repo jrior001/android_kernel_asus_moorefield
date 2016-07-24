@@ -188,10 +188,10 @@ static int clv_sdio_setup(struct sdhci_pci_data *data)
 #ifdef CONFIG_PF450CL
 	vwlan.gpio = get_gpio_by_name("WL_BT_EN");
 #else
-	vwlan.gpio = get_gpio_by_name("WLAN-enable");
+	vwlan.gpio = get_gpio_by_name("WLAN-EN");
 #endif
 	if (vwlan.gpio < 0)
-		pr_err("%s: No WLAN-enable GPIO in SFI table\n",
+		pr_err("%s: No WLAN-EN GPIO in SFI table\n",
 	       __func__);
 	pr_info("vwlan gpio %d\n", vwlan.gpio);
 	/* add a regulator to control wlan enable gpio */
@@ -472,7 +472,7 @@ static int byt_sdio_setup(struct sdhci_pci_data *data)
 #endif
 
 	if (vwlan.gpio < 0) {
-		pr_err("%s: No wlan-enable GPIO in SDHB ACPI block\n",
+		pr_err("%s: No wlan-EN GPIO in SDHB ACPI block\n",
 		       __func__);
 
 		if (INTEL_MID_BOARD(2, TABLET, BYT, BLB, PRO) ||

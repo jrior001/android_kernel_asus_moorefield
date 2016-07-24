@@ -137,11 +137,7 @@ fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
 fw-shipped-$(CONFIG_INTEL_MID_REMOTEPROC) += intel_mid/intel_mid_remoteproc.fw
 
-fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE_A500CG) += \
-../drivers/external_drivers/drivers/input/touchscreen/asus_synaptics_dsx/firmware/startup_fw_update_A500_LCE_1593779_354C0103.img \
-../drivers/external_drivers/drivers/input/touchscreen/asus_synaptics_dsx/firmware/startup_fw_update_A500_JTouch_1593779_354A0112.img \
-../drivers/external_drivers/drivers/input/touchscreen/asus_synaptics_dsx/firmware/startup_fw_update_A600_Ofilm_1593779_364F0114.img \
-../drivers/external_drivers/drivers/input/touchscreen/asus_synaptics_dsx/firmware/startup_fw_update_A600_JTouch_1593779_364A0114.img
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE_DELUXE) += synaptics/PR1782177-s3508t_hybrid_10010003.img
 
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 

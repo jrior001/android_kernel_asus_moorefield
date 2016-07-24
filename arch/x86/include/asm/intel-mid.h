@@ -49,7 +49,24 @@ extern int Read_HW_ID(void);
 extern int Read_PCB_ID(void);
 extern int Read_TP_ID(void);
 extern int Read_LCD_ID(void);
+extern int Get_Camera_Status(void);
+extern void Set_Camera_Status(int status);
 
+
+enum reboot_force_type {
+	REBOOT_FORCE_COLD_RESET = 1,
+	REBOOT_FORCE_COLD_BOOT,
+	REBOOT_FORCE_OFF,
+	REBOOT_FORCE_ON
+};
+
+#ifdef CONFIG_X86_INTEL_MID
+extern void set_reboot_force(enum reboot_force_type type);
+extern enum reboot_force_type get_reboot_force(void);
+#else
+static inline void set_reboot_force(enum reboot_force_type type) {};
+static inline void get_reboot_force(void) {};
+#endif
 
 /* OEMB table */
 struct sfi_table_oemb {

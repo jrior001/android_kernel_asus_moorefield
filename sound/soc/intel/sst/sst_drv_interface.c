@@ -50,6 +50,18 @@
 #define MAX_FRAGMENT_SIZE (1024 * 1024)
 #define SST_GET_BYTES_PER_SAMPLE(pcm_wd_sz)  (((pcm_wd_sz + 15) >> 4) << 1)
 
+int sst_reboot_callback(struct notifier_block *nfb, unsigned long event, void *data)
+{
+	pr_debug("%s fw state = %x\n", __func__, sst_drv_ctx->sst_state);
+
+	sst_drv_ctx->reboot_notify = 1;
+
+	if (sst_drv_ctx->sst_state == SST_FW_LOADING)
+		mutex_unlock(&sst_drv_ctx->sst_lock);
+
+	return NOTIFY_OK;
+}
+
 void sst_restore_fw_context(void)
 {
 	struct snd_sst_ctxt_params fw_context;
@@ -378,6 +390,11 @@ int intel_sst_check_device(void)
 	int retval = 0;
 
 	pr_debug("In %s\n", __func__);
+
+	if (sst_drv_ctx->reboot_notify) {
+		pr_info("Ignore sst command as device is rebooting\n");
+		return -EAGAIN;
+	}
 
 	pm_runtime_get_sync(sst_drv_ctx->dev);
 	atomic_inc(&sst_drv_ctx->pm_usage_count);

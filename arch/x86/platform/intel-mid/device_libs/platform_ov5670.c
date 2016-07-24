@@ -22,7 +22,7 @@
 #ifdef CONFIG_INTEL_SOC_PMC
 #include <asm/intel_soc_pmc.h>
 #endif
-
+#include <linux/lnw_gpio.h>
 #include "platform_camera.h"
 #include "platform_ov5670.h"
 #include <asm/intel_scu_pmic.h>
@@ -53,6 +53,7 @@ static int camera_vprog1_on = 0;
 static int camera_1p2_en = -1;
 static int xshutdown = -1;
 static int camera_2v8 = -1;
+static int camera_3p3_en2 = -1;
 
 /*
  * OV5670 platform data
@@ -149,9 +150,29 @@ static int ov5670_power_ctrl(struct v4l2_subdev *sd, int flag)
         printk("<< camera_2v8:%d, flag:%d\n", camera_2v8, flag);
     }
 
+
+	if (camera_3p3_en2 < 0) {
+		gpio_free(58);/////// temp WA.
+        	lnw_gpio_set_alt(58, LNW_GPIO);
+        	ret = camera_sensor_gpio(58, "3X_I2C_LED", GPIOF_DIR_OUT, 0);
+            if (ret < 0){
+            	printk("GPIO58 is not available.\n");
+            }else{
+            	camera_3p3_en2 = ret;
+            	printk(KERN_INFO "ov5670, gpio number, camera_3p3_en2 is %d\n", camera_3p3_en2);
+            }
+    	}
+
     if (flag) {
         switch (Read_PROJ_ID()) {
             case PROJ_ID_ZX550ML:
+
+        		if(camera_3p3_en2 > 0){
+            		    mdelay(1);
+            		    printk("@%s %d, project zx550ml pull up GPIO%d\n", __func__, __LINE__, camera_3p3_en2);
+            		    gpio_set_value(camera_3p3_en2, 1);
+			}
+
                         //turn on power 1.8V
                         if (!camera_vprog2_on) {
                             camera_vprog2_on = 1;
@@ -168,10 +189,12 @@ static int ov5670_power_ctrl(struct v4l2_subdev *sd, int flag)
                             gpio_set_value(camera_2v8, 1);
                             printk(KERN_ALERT "ov5670 <<< camera_2v8 = 1\n");
                         }
+
+
+
                  break;
             case PROJ_ID_ZE550ML:
             case PROJ_ID_ZE551ML:
-            case PROJ_ID_ZR550ML:
             case PROJ_ID_ZE551ML_CKD:
                 switch (Read_HW_ID()) {
                     case HW_ID_EVB:
@@ -261,6 +284,13 @@ static int ov5670_power_ctrl(struct v4l2_subdev *sd, int flag)
 
         //flag == 0
     } else {
+
+                        if (camera_3p3_en2 >= 0){
+			    gpio_set_value(camera_3p3_en2, 0);
+			    camera_sensor_gpio_free(camera_3p3_en2);
+        		    camera_3p3_en2 = -1;
+			}
+
         //turn OFF power 1.2V
         gpio_set_value(camera_1p2_en, 0);
         gpio_free(camera_1p2_en);
@@ -286,10 +316,11 @@ static int ov5670_power_ctrl(struct v4l2_subdev *sd, int flag)
                             camera_2v8 = -1;
                             printk("<<< camera_2v8 = 0\n");
                         }
+
+
                 break;
             case PROJ_ID_ZE550ML:
             case PROJ_ID_ZE551ML:
-            case PROJ_ID_ZR550ML:
             case PROJ_ID_ZE551ML_CKD:
                 switch (Read_HW_ID()) {
                     case HW_ID_EVB:

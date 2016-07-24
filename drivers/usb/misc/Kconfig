@@ -246,3 +246,5 @@ config USB_TEST_MODE
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called usb_tm.
+
+source "drivers/usb/misc/asus_usb/Kconfig"

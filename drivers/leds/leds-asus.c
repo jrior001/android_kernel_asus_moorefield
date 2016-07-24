@@ -36,6 +36,7 @@
 #include <linux/workqueue.h>
 #include <linux/delay.h>
 #include <linux/mfd/intel_mid_pmic.h>
+#include <linux/HWVersion.h>
 #include <asm/intel_scu_ipc.h>
 #include <asm/intel_scu_pmic.h>
 
@@ -57,6 +58,8 @@
 #define F_FULLY_OFF_TIME_REG	0x06
 #define S_FULLY_OFF_TIME_REG	0x07
 
+extern int Read_PROJ_ID(void);
+
 /* +++global variables+++ */
 static int red_led_flag, green_led_flag, red_blink_flag, green_blink_flag, power_on_flag;
 static struct i2c_client *led_client;
@@ -75,7 +78,7 @@ struct led_info_priv {
 static int led_i2c_read(struct i2c_client *client, u8 reg)
 {
 	int ret;
-	
+
 	ret = i2c_smbus_read_byte_data(client, reg);
 	if (ret < 0)
 		LED_ERR("failed to read reg 0x%x: %d\n", reg, ret);
@@ -303,6 +306,12 @@ static int asus_led_probe(struct i2c_client *client,
 	int i, ret = 0;
 
 	LED_INFO("%s +++\n", __func__);
+	/* check if the project support TCA6507 */
+	if (Read_PROJ_ID()==PROJ_ID_ZS550ML_SEC) {
+		LED_INFO("this project doesn't support tca6507, skip probe function.\n");
+		return 0;
+	}
+
 	adapter = to_i2c_adapter(client->dev.parent);
 	if (!i2c_check_functionality(adapter, I2C_FUNC_I2C))
 		return -EIO;

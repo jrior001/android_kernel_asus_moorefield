@@ -25,8 +25,8 @@
  *      20130914 - fix ep read condition check mistake
  *      20131004 - support USB 3.0 (SuperSpeed)
  */
-#define DEBUG
-#define VERBOSE_DEBUG
+//#define DEBUG
+//#define VERBOSE_DEBUG
 
 #include <linux/module.h>
 #include <linux/init.h>

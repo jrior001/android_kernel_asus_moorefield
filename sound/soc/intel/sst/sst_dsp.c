@@ -591,10 +591,6 @@ static int sst_dma_firmware(struct sst_dma *dma, struct sst_sg_list *sg_list)
 		sst_shim_write(sst_drv_ctx->shim, SST_PIMR, 0xFFFF0034);
 
 	if (sst_drv_ctx->use_lli) {
-		if (!dma_map_sg(dma->dev, sg_src_list, length, DMA_MEM_TO_MEM)) {
-			pr_err("%s dma_map_sg failed for src_sg\n", __func__);
-			return -EFAULT;
-		}
 		sst_drv_ctx->desc = dma->ch->device->device_prep_dma_sg(dma->ch,
 					sg_dst_list, length,
 					sg_src_list, length, flag);
@@ -603,8 +599,6 @@ static int sst_dma_firmware(struct sst_dma *dma, struct sst_sg_list *sg_list)
 		retval = sst_dma_wait_for_completion(sst_drv_ctx);
 		if (retval)
 			pr_err("sst_dma_firmware..timeout!\n");
-
-		dma_unmap_sg(dma->dev, sg_src_list, length, DMA_MEM_TO_MEM);
 	} else {
 		struct scatterlist *sg;
 		dma_addr_t src_addr, dstn_addr;
@@ -612,6 +606,8 @@ static int sst_dma_firmware(struct sst_dma *dma, struct sst_sg_list *sg_list)
 
 		/* dma single block mode */
 		for_each_sg(sg_src_list, sg, length, i) {
+			if ((sg == NULL) || (sg_dst_list == NULL))
+				return -EINVAL;
 			pr_debug("dma desc %d, length %d\n", i, sg->length);
 			src_addr = sg_phys(sg);
 			dstn_addr = sg_phys(sg_dst_list);
@@ -624,7 +620,6 @@ static int sst_dma_firmware(struct sst_dma *dma, struct sst_sg_list *sg_list)
 			retval = sst_dma_wait_for_completion(sst_drv_ctx);
 			if (retval)
 				pr_err("sst_dma_firmware..timeout!\n");
-
 		}
 	}
 

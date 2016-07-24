@@ -53,9 +53,7 @@ struct workqueue_struct *battery_work_queue=NULL;
 /* wake lock to prevent S3 during charging */
 struct wake_lock wakelock;
 struct wake_lock wakelock_t;    // for wake_lokc_timout() useage
-#ifdef CONFIG_A500CG_BATTERY_SMB347
-static int temp_status=1; // 0:<0, 1: 0-45, 2:45-60, 3:>60
-#endif
+
 #ifdef CONFIG_SMB1357_CHARGER
 enum temperature_type{  //unit: 0.1 degree Celsius
 	BELOW_15=0,
@@ -69,21 +67,29 @@ enum temperature_type{  //unit: 0.1 degree Celsius
 };
 static int temp_type=IN_200_400;
 static int hvdcp_vbat_flag=0, highchgvol_flag=0, aicl_set_flag=0;
-extern int hvdcp_mode, dcp_mode, early_suspend_flag, set_usbin_cur_flag;
+extern int hvdcp_mode, dcp_mode, early_suspend_flag, set_usbin_cur_flag, chr_suspend_flag;
 static struct switch_dev charger_dev;
 extern int smb1357_chr_suspend(void);
 #endif
 #ifdef THERMAL_CTRL
 static int qc_disable=1, temp_1400=55000, temp_700=60000, temp_0=70000;
+static int temp_usbin_1200=47000, temp_usbin_700=50000, temp_usbin_300=59000;
 long systherm2_temp;
 extern long read_systherm2_temp(void);
-enum systherm2_control_current_block{
+enum systherm2_control_current_block {
 	LIMIT_NONE=0,
 	LIMIT_1400,
 	LIMIT_700,
 	LIMIT_0,
 };
 static int current_type=LIMIT_NONE;
+enum systherm2_control_current_block_zx551ml {
+	LIMIT_NONE_ZX=0,
+	LIMIT_1200_ZX,
+	LIMIT_700_ZX,
+	LIMIT_300_ZX,
+};
+static int current_type_zx=LIMIT_NONE_ZX;
 #endif
 
 #ifdef CONFIG_LEDS_ASUS
@@ -195,9 +201,7 @@ ssize_t asus_charging_for_gague_toggle_write(struct file *filp, const char __use
         /* turn on charging limit in eng mode */
         //eng_charging_limit = true;
         BAT_DBG("disable charging:\n");
-#if defined(CONFIG_A500CG_BATTERY_SMB347)
-        smb347_charging_toggle(false);
-#elif defined(CONFIG_SMB1357_CHARGER)
+#if defined(CONFIG_SMB1357_CHARGER)
 	smb1357_charging_toggle(false);
 #endif
     }
@@ -205,9 +209,7 @@ ssize_t asus_charging_for_gague_toggle_write(struct file *filp, const char __use
         /* turn off charging limit in eng mode */
         //eng_charging_limit = false;
         BAT_DBG("enable charging:\n");
-#if defined(CONFIG_A500CG_BATTERY_SMB347)
-        smb347_charging_toggle(true);
-#elif defined(CONFIG_SMB1357_CHARGER)
+#if defined(CONFIG_SMB1357_CHARGER)
 	smb1357_charging_toggle(true);
 #endif
     }
@@ -342,7 +344,7 @@ ssize_t init_thermal_disable_qc_read(struct file *filp, char __user *buffer, siz
 	buff = kmalloc(100,GFP_KERNEL);
 	if(!buff)
 		return -ENOMEM;
-	len += sprintf(buff + len, "qc_disable=%d, temp_1400=%d, temp_700=%d, temp_0=%d\n", qc_disable, temp_1400, temp_700, temp_0);
+	len += sprintf(buff + len, "qc_disable=%d, temp_usbin_1200=%d, temp_usbin_700=%d, temp_usbin_300=%d\n", qc_disable, temp_usbin_1200, temp_usbin_700, temp_usbin_300);
 	ret = simple_read_from_buffer(buffer,count,ppos,buff,len);
 	kfree(buff);
 	return ret;
@@ -350,7 +352,7 @@ ssize_t init_thermal_disable_qc_read(struct file *filp, char __user *buffer, siz
 
 ssize_t init_thermal_disable_qc_write(struct file *filp, const char __user *buffer, size_t count, loff_t *ppos)
 {
-	int buf_index=0, temp_index=0, temp_value=1, i=0, temp_1400_tmp=0, temp_700_tmp=0, temp_0_tmp=0;
+	int buf_index=0, temp_index=0, temp_value=1, i=0, temp_usbin_1200_tmp=0, temp_usbin_700_tmp=0, temp_usbin_300_tmp=0;
 
 	BAT_DBG("%s +++\n", __func__);
 	/*handle input string to interger*/
@@ -360,41 +362,41 @@ ssize_t init_thermal_disable_qc_write(struct file *filp, const char __user *buff
 		buf_index++;
 	}
 	buf_index++;
-	/*temp_1400*/
+	/*temp_usbin_1200*/
 	temp_index = 4;
 	while(buffer[buf_index]!=' ') {
 		for(i=0;i<temp_index;i++)
 			temp_value = 10*temp_value;
-		temp_1400_tmp += ((int)buffer[buf_index] - 48)*temp_value;
+		temp_usbin_1200_tmp += ((int)buffer[buf_index] - 48)*temp_value;
 		buf_index++;
 		temp_index--;
 		temp_value = 1;
 	}
 	buf_index++;
-	/*temp_700*/
+	/*temp_usbin_700*/
 	temp_index = 4;
 	while(buffer[buf_index]!=' ') {
 		for(i=0;i<temp_index;i++)
 			temp_value = 10*temp_value;
-		temp_700_tmp += ((int)buffer[buf_index] - 48)*temp_value;
+		temp_usbin_700_tmp += ((int)buffer[buf_index] - 48)*temp_value;
 		buf_index++;
 		temp_index--;
 		temp_value = 1;
 	}
 	buf_index++;
-	/*temp_0*/
+	/*temp_usbin_300*/
 	temp_index = 4;
 	while(buffer[buf_index]!='\n') {
 		for(i=0;i<temp_index;i++)
 			temp_value = 10*temp_value;
-		temp_0_tmp += ((int)buffer[buf_index] - 48)*temp_value;
+		temp_usbin_300_tmp += ((int)buffer[buf_index] - 48)*temp_value;
 		buf_index++;
 		temp_index--;
 		temp_value = 1;
 	}
-	temp_1400 = temp_1400_tmp;
-	temp_700 = temp_700_tmp;
-	temp_0 = temp_0_tmp;
+	temp_usbin_1200 = temp_usbin_1200_tmp;
+	temp_usbin_700 = temp_usbin_700_tmp;
+	temp_usbin_300 = temp_usbin_300_tmp;
 	return count;
 }
 
@@ -695,9 +697,7 @@ static int asus_battery_update_status_no_mutex(int percentage)
 #ifdef CONFIG_ASUS_FACTORY_MODE
                 if (percentage >= 60 && tmp_batt_info.eng_charging_limit) {
                         BAT_DBG("in fac mode and capasity > 60 percent\n");
-#if defined(CONFIG_A500CG_BATTERY_SMB347)
-			smb347_charging_toggle(false);
-#elif defined(CONFIG_SMB1357_CHARGER)
+#if defined(CONFIG_SMB1357_CHARGER)
 			smb1357_charging_toggle(false);
 #endif
                         status = POWER_SUPPLY_STATUS_DISCHARGING;
@@ -711,7 +711,7 @@ static int asus_battery_update_status_no_mutex(int percentage)
 		if((cable_status == USB_ADAPTER)&&(dcp_mode==1)&&(aicl_set_flag==0)) {
 			if(hvdcp_mode==1) {
 				if(Read_PROJ_ID()==PROJ_ID_ZX550ML) {
-					if((smb1357_get_aicl_result()>=0x0b)&&(smb1357_get_aicl_result()<0x12)) {
+					if((smb1357_get_aicl_result()>=0x0b)&&(smb1357_get_aicl_result()<0x12)&&(current_type_zx==LIMIT_NONE_ZX)) {
 						BAT_DBG("HVDCP in and aicl result between 1000~1800mA\n");
 						if(set_usbin_cur_flag==1) {
 							BAT_DBG("setting step current now so ignore!\n");
@@ -734,41 +734,21 @@ static int asus_battery_update_status_no_mutex(int percentage)
 					}
 				}
 			}else {
-				if(Read_PROJ_ID()==PROJ_ID_ZX550ML) {
-					if((smb1357_get_aicl_result()>=0x0b)&&(smb1357_get_aicl_result()<0x10)) {
-						BAT_DBG("DCP in and aicl result between 1000~1500mA\n");
-						if(set_usbin_cur_flag==1) {
-							BAT_DBG("setting step current now so ignore!\n");
-						}else {
-							BAT_DBG("set current again!\n");
-							set_QC_inputI_limit(3);
-							aicl_set_flag = 1;
-						}
-					}else if( (vbat>4300)||(percentage>70) ) {
-						BAT_DBG("DCP in and vbat >4.3V  or soc > 70 \n");
-						if(set_usbin_cur_flag==1) {
-							BAT_DBG("setting step current now so ignore!\n");
-						}else {
-							BAT_DBG("set current again!\n");
-							set_QC_inputI_limit(3);
-							aicl_set_flag = 1;
-						}
-					}
-				}else if(Read_PROJ_ID()==PROJ_ID_ZE551ML_CKD) {
-					if((smb1357_get_aicl_result()>=0x0b)&&(smb1357_get_aicl_result()<0x12)) {
+				if (Read_PROJ_ID()==PROJ_ID_ZE551ML_CKD) {
+					if ((smb1357_get_aicl_result()>=0x0b)&&(smb1357_get_aicl_result()<0x12)) {
 						BAT_DBG("BZ SKU: DCP in and aicl result between 1000~1800mA\n");
-						if(set_usbin_cur_flag==1) {
+						if (set_usbin_cur_flag==1) {
 							BAT_DBG("setting step current now so ignore!\n");
-						}else {
+						} else {
 							BAT_DBG("set current again!\n");
 							set_QC_inputI_limit(3);
 							aicl_set_flag = 1;
 						}
-					}else if(vbat>3800) {
+					}else if (vbat>3800) {
 						BAT_DBG("BZ SKU: DCP in and vbat >3.8V\n");
-						if(set_usbin_cur_flag==1) {
+						if (set_usbin_cur_flag==1) {
 							BAT_DBG("setting step current now so ignore!\n");
-						}else {
+						} else {
 							BAT_DBG("set current again!\n");
 							set_QC_inputI_limit(3);
 							aicl_set_flag = 1;
@@ -1018,65 +998,10 @@ handle500_600:
 		}
 #endif
 
-#ifdef CONFIG_A500CG_BATTERY_SMB347
-				BAT_DBG("smb358 !!!!!%s\n",__func__);
-                if (status == POWER_SUPPLY_STATUS_CHARGING) {
-			/* A500CG limit to protect battery from damaged when battery temperature is too low or High*/
-			temperature = asus_battery_update_temp_no_mutex();
-                        if ((temperature != ERROR_CODE_I2C_FAILURE)&&(tmp_batt_info.thermal_charging_limit)) {
-					if (temperature <= 0) {
-						smb347_set_voltage(false);
-						smb347_charging_toggle(false);
-						status = POWER_SUPPLY_STATUS_DISCHARGING;
-						temp_status = 0;
-						goto final;
-					} else if (temperature > 0 && temperature <= 450) {
-						if(temp_status==0&&temperature<50) {
-							smb347_charging_toggle(false);
-							status = POWER_SUPPLY_STATUS_DISCHARGING;
-							goto final;
-						}else if(temp_status==2&&temperature>400) {
-							smb347_set_voltage(true);
-						}else {
-							smb347_set_voltage(false);
-							smb347_charging_toggle(true);
-							temp_status = 1;
-						}
-					} else if (temperature > 450 && temperature <= 600) {
-						if(temp_status==3&&temperature>550) {
-							smb347_charging_toggle(false);
-							status = POWER_SUPPLY_STATUS_DISCHARGING;
-							goto final;
-						}else {
-							smb347_set_voltage(true);
-							smb347_charging_toggle(true);
-							temp_status = 2;
-						}
-					} else {
-						smb347_set_voltage(true);
-						smb347_charging_toggle(false);
-						status = POWER_SUPPLY_STATUS_DISCHARGING;
-						temp_status = 3;
-						goto final;
-					}
-                        }
-                        else if(temperature != ERROR_CODE_I2C_FAILURE) {
-					/*thermal protection off*/
-					smb347_set_voltage(false);
-					smb347_charging_toggle(true);
-			    }
-                        else
-                                status = POWER_SUPPLY_STATUS_UNKNOWN;
-			    if (cable_status == USB_ADAPTER && smb347_get_aicl_result() <= 0x01 && tmp_batt_info.batt_volt>=3000 ) {// AICL result < 500mA
-                        BAT_DBG("AICL get result, AICL results < 500mA, voltage=%d\n", tmp_batt_info.batt_volt);
-                        smb347_AC_in_current();
-                    }
-                }
-#endif
 #ifdef THERMAL_CTRL
 #ifdef CONFIG_SMB1357_CHARGER
 		/*for QC thermal shutdown issue, so add monitoring SYSTHERM2 function for ZE550ML/ZE551ML*/
-		if(qc_disable&&hvdcp_mode&&(!early_suspend_flag)&&(Read_PROJ_ID()!=PROJ_ID_ZX550ML)&&(boot_mode==1)) {
+		if(qc_disable&&hvdcp_mode&&(!early_suspend_flag)&&(boot_mode==1)&&(Read_PROJ_ID()!=PROJ_ID_ZX550ML)) {
 			systherm2_temp = read_systherm2_temp();
 			if(systherm2_temp<temp_1400) {
 				if(current_type>=LIMIT_1400 && systherm2_temp>(temp_1400-3000)) {
@@ -1121,6 +1046,46 @@ handle500_600:
 			}
 			BAT_DBG("use thermal policy and systherm2_temp=%ld, current_type=%d\n", systherm2_temp, current_type);
 		}
+		/*for QC thermal shutdown issue, so add monitoring SYSTHERM2 function for ZX551ML*/
+		if(qc_disable&&hvdcp_mode&&(boot_mode==1)&&(!chr_suspend_flag)&&(Read_PROJ_ID()==PROJ_ID_ZX550ML)) {
+			systherm2_temp = read_systherm2_temp();
+			if (systherm2_temp<temp_usbin_1200) {
+				if(current_type_zx>=LIMIT_1200_ZX && systherm2_temp>(temp_usbin_1200-2000)) {
+					if (smb1357_get_aicl_result()!=0x0d)
+						set_QC_inputI_limit(2);
+					current_type_zx=LIMIT_1200_ZX;
+				}else {
+					if ((current_type_zx>LIMIT_NONE_ZX)&&(smb1357_get_aicl_result()!=0x15))
+						set_QC_inputI_limit(1);
+					current_type_zx=LIMIT_NONE_ZX;
+				}
+			} else if (systherm2_temp>=temp_usbin_1200 && systherm2_temp<temp_usbin_700) {
+				if(current_type_zx>=LIMIT_700_ZX && systherm2_temp>(temp_usbin_700-2000)) {
+					if (smb1357_get_aicl_result()!=0x08)
+						set_QC_inputI_limit(7);
+					current_type_zx=LIMIT_700_ZX;
+				}else {
+					if (smb1357_get_aicl_result()!=0x0d)
+						set_QC_inputI_limit(2);
+					current_type_zx=LIMIT_1200_ZX;
+				}
+			} else if (systherm2_temp>=temp_usbin_700 && systherm2_temp<temp_usbin_300) {
+				if(current_type_zx>=LIMIT_300_ZX && systherm2_temp>(temp_usbin_300-2000)) {
+					if (smb1357_get_aicl_result()!=0x00)
+						set_QC_inputI_limit(8);
+					current_type_zx = LIMIT_300_ZX;
+				} else {
+					if (smb1357_get_aicl_result()!=0x08)
+						set_QC_inputI_limit(7);
+					current_type_zx=LIMIT_700_ZX;
+				}
+			} else {
+				if (smb1357_get_aicl_result()!=0x00)
+					set_QC_inputI_limit(8);
+				current_type_zx = LIMIT_300_ZX;
+			}
+			BAT_DBG("use thermal policy and systherm2_temp=%ld, current_type_zx=%d\n", systherm2_temp, current_type_zx);
+		}
 #endif
 #endif
                 if (percentage >= 0 && percentage <= 100) {
@@ -1129,9 +1094,7 @@ handle500_600:
                           status = POWER_SUPPLY_STATUS_FULL;
                           break;
                        case 99:
-#if defined(CONFIG_A500CG_BATTERY_SMB347)
-                          if (smb347_get_charging_status() == POWER_SUPPLY_STATUS_FULL) {
-#elif defined(CONFIG_SMB1357_CHARGER)
+#if defined(CONFIG_SMB1357_CHARGER)
                           if (smb1357_get_charging_status() == POWER_SUPPLY_STATUS_FULL) {
 #else
 			if(0) {
@@ -1382,15 +1345,7 @@ void usb_to_battery_callback(u32 usb_cable_state)
         mutex_unlock(&batt_info_mutex);
 
         if (batt_info.cable_status == USB_ADAPTER || batt_info.cable_status == USB_PC) {
-#if defined(CONFIG_A500CG_BATTERY_SMB347)
-            smb347_set_fast_charge();
-            smb347_set_voltage(false);
-            smb347_control_JEITA(true);
-            if (batt_info.cable_status == USB_ADAPTER) {
-                /*A500CG  set I_USB_IN=1200mA*/
-                smb347_AC_in_current();
-            }
-#elif defined(CONFIG_SMB1357_CHARGER)
+#if defined(CONFIG_SMB1357_CHARGER)
 		smb1357_set_fast_charge();
 		smb1357_charging_toggle(false); // for not charging when almost full battery workaround
 		smb1357_set_voltage(false);
@@ -1590,9 +1545,7 @@ static int asus_power_get_property(struct power_supply *psy,
         case POWER_SUPPLY_PROP_PRESENT:
                 if (psy->type == POWER_SUPPLY_TYPE_USB || psy->type == POWER_SUPPLY_TYPE_MAINS) {
                     /* for ATD test to acquire the status about charger ic */
-#if defined(CONFIG_A500CG_BATTERY_SMB347)
-                    if (!smb347_has_charger_error() || smb347_get_charging_status() == POWER_SUPPLY_STATUS_CHARGING)
-#elif defined(CONFIG_SMB1357_CHARGER)
+#if defined(CONFIG_SMB1357_CHARGER)
                     if (!smb1357_has_charger_error() || smb1357_get_charging_status() == POWER_SUPPLY_STATUS_CHARGING)
 #else
 		  if(0)
@@ -1611,6 +1564,34 @@ static int asus_power_get_property(struct power_supply *psy,
         return ret;
 }
 
+/* add power_supply/battery attr:battery_soh +++*/
+static ssize_t sysfs_show_battery_soh(struct device *dev,
+						struct device_attribute *attr,
+						char *buf)
+{
+	struct battery_info_reply tmp_batt_info;
+	
+	tmp_batt_info = batt_info;
+	
+	if (tmp_batt_info.tbl && tmp_batt_info.tbl->read_soh) {
+		return sprintf(buf, "%d\n", tmp_batt_info.tbl->read_soh());
+	}else{
+	    return sprintf(buf, "%d\n", "0");
+	}
+}
+
+static DEVICE_ATTR(battery_soh, S_IRUGO,
+		sysfs_show_battery_soh, NULL);
+
+static struct attribute *extra_sysfs_attributes[] = {
+	&dev_attr_battery_soh.attr,
+	NULL,
+};
+
+static const struct attribute_group extra_sysfs_attr_group = {
+	.attrs = extra_sysfs_attributes,
+};
+/* add power_supply/battery attr:battery_soh ---*/
 
 int asus_register_power_supply(struct device *dev, struct dev_func *tbl)
 {
@@ -1647,6 +1628,8 @@ int asus_register_power_supply(struct device *dev, struct dev_func *tbl)
         //register to power supply driver
         ret = power_supply_register(dev, &asus_power_supplies[CHARGER_BATTERY]);
         if (ret) { BAT_DBG_E("Fail to register battery\n"); goto batt_err_reg_fail_battery; }
+		sysfs_create_group(&asus_power_supplies[CHARGER_BATTERY].dev->kobj,
+			&extra_sysfs_attr_group);
 #if 0 // register in charger driver
         ret = power_supply_register(dev, &asus_power_supplies[CHARGER_USB]);
         if (ret) { BAT_DBG_E("Fail to register USB\n"); goto batt_err_reg_fail_usb; }
@@ -1730,8 +1713,8 @@ int asus_battery_init(
 )
 {
         int ret=0;
-        drv_status_t drv_sts;    
 	uint8_t data;
+        drv_status_t drv_sts;
 
         BAT_DBG("%s, %d, %d, 0x%08X\n", __func__, polling_time, critical_polling_time, test_flag);
 
@@ -1851,10 +1834,8 @@ int asus_battery_init(
 
 	//set PMIC voltage drop warning
 	intel_scu_ipc_iowrite8(VWARN1_CFG_REG, 0xFF);
-	if(Read_PROJ_ID()==PROJ_ID_ZX550ML) {
-		//set PMIC VPROG2 1V8 default on in ZX550ML
-		intel_scu_ipc_iowrite8(VPROG2_CFG_REG, 0x4B);
-	}
+	//set PMIC VPROG2 1V8 default on in ZX550ML
+	intel_scu_ipc_iowrite8(VPROG2_CFG_REG, 0x4B);
 	//set power key pressed for HW shutdown to 8s
 	ret = intel_scu_ipc_ioread8(PBCONFIG_REG, &data);
 	if (ret) {

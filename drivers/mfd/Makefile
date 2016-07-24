@@ -37,6 +37,9 @@ obj-$(CONFIG_MFD_ARIZONA)	+= arizona-core.o
 obj-$(CONFIG_MFD_ARIZONA)	+= arizona-irq.o
 obj-$(CONFIG_MFD_ARIZONA_I2C)	+= arizona-i2c.o
 obj-$(CONFIG_MFD_ARIZONA_SPI)	+= arizona-spi.o
+
+obj-$(CONFIG_MFD_ARIZONA_LARGO_SPI)	:= arizona-largo-core.o arizona-largo-irq.o arizona-largo-spi.o largo-tables.o
+
 ifneq ($(CONFIG_MFD_WM5102),n)
 obj-$(CONFIG_MFD_ARIZONA)	+= wm5102-tables.o
 endif
@@ -45,6 +48,8 @@ obj-$(CONFIG_MFD_ARIZONA)	+= florida-tables.o
 endif
 ifneq ($(CONFIG_MFD_WM8997),n)
 obj-$(CONFIG_MFD_ARIZONA)	+= wm8997-tables.o
+
+
 endif
 obj-$(CONFIG_MFD_WM8400)	+= wm8400-core.o
 wm831x-objs			:= wm831x-core.o wm831x-irq.o wm831x-otp.o

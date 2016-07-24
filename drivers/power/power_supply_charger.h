@@ -28,7 +28,6 @@ struct batt_props {
 	unsigned long tstamp;
 	enum psy_algo_stat algo_stat;
 	int health;
-	int throttle_state;
 };
 
 struct charger_props {
@@ -40,6 +39,7 @@ struct charger_props {
 	bool online;
 	unsigned long cable;
 	unsigned long tstamp;
+	int throttle_state;
 };
 
 struct psy_batt_thresholds {
@@ -169,6 +169,8 @@ static inline int get_ps_int_property(struct power_supply *psy,
 #define ITERM(psy) \
 		get_ps_int_property(psy, POWER_SUPPLY_PROP_CHARGE_TERM_CUR)
 
+#define IS_MANUAL_OVERRIDE(psy) \
+		get_ps_int_property(psy, POWER_SUPPLY_PROP_MANUAL_OVERRIDE)
 #define IS_CHARGING_ENABLED(psy) \
 		get_ps_int_property(psy, POWER_SUPPLY_PROP_ENABLE_CHARGING)
 #define IS_CHARGER_ENABLED(psy) \
@@ -191,7 +193,8 @@ static inline int get_ps_int_property(struct power_supply *psy,
 	((cache_prop.online != prop.online) || \
 	(cache_prop.present != prop.present) || \
 	(cache_prop.is_charging != prop.is_charging) || \
-	(cache_prop.health != prop.health))
+	(cache_prop.health != prop.health) || \
+	(cache_prop.throttle_state != prop.throttle_state))
 
 #define IS_BAT_PROP_CHANGED(bat_prop, bat_cache)\
 	((bat_cache.voltage_now != bat_prop.voltage_now) || \
@@ -199,9 +202,7 @@ static inline int get_ps_int_property(struct power_supply *psy,
 	((bat_cache.current_now != bat_prop.current_now) || \
 	(bat_cache.voltage_now != bat_prop.voltage_now))) || \
 	(bat_cache.temperature != bat_prop.temperature) || \
-	(bat_cache.health != bat_prop.health) || \
-	(bat_cache.throttle_state != bat_prop.throttle_state))
-
+	(bat_cache.health != bat_prop.health))
 
 #define MAX_THROTTLE_STATE(psy)\
 		(get_ps_int_property(psy,\

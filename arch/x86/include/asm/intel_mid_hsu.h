@@ -17,6 +17,7 @@ enum hsu_core {
 	hsu_ann_lnp,
 	hsu_vlv2,
 	hsu_chv,
+	hsu_btns,
 };
 
 enum {
@@ -56,8 +57,8 @@ struct hsu_port_cfg {
 	int (*hw_init)(struct device *dev, int port);
 	void(*hw_set_alt)(int port);
 	void(*hw_set_rts)(int port, int value);
-        void(*hw_set_lpm)(int port, bool enable);
-        void(*hw_suspend)(int port, struct device *dev, irq_handler_t wake_isr);
+    void(*hw_set_lpm)(int port, bool enable);
+	void(*hw_suspend)(int port, struct device *dev, irq_handler_t wake_isr);
 	void(*hw_suspend_post)(int port);
 	void(*hw_resume)(int port, struct device *dev);
 	unsigned int (*hw_get_clk)(void);

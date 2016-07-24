@@ -43,6 +43,7 @@
 #include <asm/intel-mid.h>
 #include "ftxxxx_ts.h"
 #include "ftxxxx_ex_fun.h"
+#include "../../modules/drivers/i2c/busses/i2c-designware-core.h"
 
 //#include <mach/gpio.h>
 //#include <mach/map.h>
@@ -133,6 +134,7 @@ struct ftxxxx_ts_data {
 	unsigned int irq;
 	unsigned int x_max;
 	unsigned int y_max;
+	bool usb_status;
 	unsigned int fw_ver;
 	unsigned int vendor_id;
 	struct i2c_client *client;
@@ -146,6 +148,8 @@ struct ftxxxx_ts_data {
 	int touchs;
 	struct workqueue_struct *ftxxxx_wq;
 	struct work_struct work;
+	struct workqueue_struct *usb_wq;
+	struct work_struct usb_detect_work;
 	struct mutex mutex_lock;
 	struct wake_lock wake_lock;
 	bool suspend_flag;
@@ -158,6 +162,7 @@ struct ftxxxx_platform_data ftxxxx_pdata = {
 	.screen_max_y = TOUCH_MAX_Y,
 };
 
+struct ftxxxx_ts_data *check_ts;
 //#define TOUCH_MAX_X						0x700
 //#define TOUCH_MAX_Y						0x400
 
@@ -817,9 +822,9 @@ static void ftxxxx_report_value(struct ftxxxx_ts_data *data)
 static void ftxxxx_ts_work_func(struct work_struct *work)
 {
 	struct ftxxxx_ts_data *ftxxxx_ts = container_of(work, struct ftxxxx_ts_data, work);
+	struct dw_i2c_dev *dev = i2c_get_adapdata(ftxxxx_ts->client->adapter);
 	int ret = 0;
 	u8 state;
-
 	mutex_lock(&ftxxxx_ts->mutex_lock);
 
 //<ASUS_Proximity+>
@@ -835,6 +840,19 @@ static void ftxxxx_ts_work_func(struct work_struct *work)
 //<ASUS_Proximity->
 
 #ifdef FTS_GESTURE//zax 20140922
+
+	//<ASUS_i2c_suspend+>
+	if ((dclick_mode == 1) || (gesture_mode & 0x40)) {
+		if(dev->status & STATUS_SUSPENDED){
+			ret = i2c_dw_resume(dev,false);
+			if (ret < 0) {
+				printk("[ftxxxx] %s: ret = %d, i2c_dw_resume failed\n", __func__, ret);
+			}			
+			printk("[ftxxxx] unlock i2c suspend status=%d\n", dev->status);	
+		}
+	}
+	//<ASUS_i2c_suspend->
+	
 	i2c_smbus_read_i2c_block_data(ftxxxx_ts->client, 0xd0, 1, &state);
 	//Tempdev_dbg(&ftxxxx_ts->client->dev, "[ftxxxx] tpd fts_read_Gesturedata state=%d\n",state);
 	if(state ==1 && ((dclick_mode == 1) || (gesture_mode & 0x40)))
@@ -916,6 +934,58 @@ static int fts_init_gpio_hw(struct ftxxxx_ts_data *ftxxxx_ts)
 	return ret;
 }
 
+//usb_cable_status+
+void ftxxxx_usb_detection(bool plugin)
+{
+	if (check_ts == NULL) {
+		printk("[ftxxxx][TOUCH_ERR] %s : ftxxxx_ts is null, skip \n", __func__);
+		return;
+	}
+
+	
+	if (plugin) {
+		check_ts->usb_status = 1; /*AC plug in*/
+		printk("ftxxxx usb_status = %d\n", check_ts->usb_status);
+	}
+	else {
+		check_ts->usb_status = 0;	/*no AC */
+		printk("ftxxxx usb_status = %d\n", check_ts->usb_status);
+	}
+	queue_work(check_ts->usb_wq, &check_ts->usb_detect_work);
+	
+	
+}
+
+static void ftxxxx_cable_status(struct work_struct *work)
+{
+	struct ftxxxx_ts_data *ftxxxx_ts = container_of(work, struct ftxxxx_ts_data, usb_detect_work);
+	
+	uint8_t buf[2] = {0};
+	int status = ftxxxx_ts->usb_status;
+
+	wake_lock(&ftxxxx_ts->wake_lock);
+	mutex_lock(&ftxxxx_ts->mutex_lock);
+	
+	printk("[ftxxxx] cable_status=%d.\n", status);
+
+	if (status == 0) {	/*no AC */
+		buf[0] = 0x8B;
+		buf[1] = 0x00;
+		ftxxxx_write_reg(ftxxxx_ts->client, buf[0], buf[1]);
+	} else if (status == 1) {	/*AC plug in*/
+		buf[0] = 0x8B;
+		buf[1] = 0x01;
+		ftxxxx_write_reg(ftxxxx_ts->client, buf[0], buf[1]);
+	}
+	
+
+	mutex_unlock(&ftxxxx_ts->mutex_lock);
+	wake_unlock(&ftxxxx_ts->wake_lock);
+
+	return;
+}
+//usb_cable_status-
+
 static void fts_un_init_gpio_hw(struct ftxxxx_ts_data *ftxxxx_ts)
 {
 	gpio_free(FTXXXX_INT_PIN);
@@ -926,59 +996,84 @@ static void fts_un_init_gpio_hw(struct ftxxxx_ts_data *ftxxxx_ts)
 static ssize_t virtual_keys_show(struct kobject *kobj,  
              struct kobj_attribute *attr, char *buf)  
 {
-	if (Read_HW_ID() == HW_ID_MP)
+	if (Read_PROJ_ID() == PROJ_ID_ZE550ML || Read_PROJ_ID() == PROJ_ID_ZE551ML || 
+		 Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD || Read_PROJ_ID() == PROJ_ID_ZX550ML)
 	{
-		if (Read_PROJ_ID() == PROJ_ID_ZE550ML)
+		#if defined(CONFIG_ZS550ML) || defined(CONFIG_ZS570ML)
+		if (Read_HW_ID() == HW_ID_MP)
+		#else
+		if (Read_HW_ID() == HW_ID_MP || (Read_PROJ_ID() == PROJ_ID_ZX550ML && Read_HW_ID() == HW_ID_MP_SD))
+		#endif
 		{
-			return sprintf(buf,  
-				__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":140:1341:180:100"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":360:1341:170:100"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":580:1341:180:100"  
-				"\n");
+			if (Read_PROJ_ID() == PROJ_ID_ZE550ML)
+			{
+				return sprintf(buf,  
+					__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":140:1341:180:100"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":360:1341:170:100"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":580:1341:180:100"  
+					"\n");
+			}
+			else if (Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
+			{
+				return sprintf(buf,  
+					__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":215:2061:260:250"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":540:2061:260:250"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":865:2061:260:250"  
+					"\n");
+			}
+			else if (Read_PROJ_ID() == PROJ_ID_ZX550ML)
+			{
+				return sprintf(buf,  
+					__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":215:2061:260:250"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":540:2061:260:250"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":865:2061:260:250"  
+					"\n");
+			}
 		}
-		else if (Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
+		else
 		{
-			return sprintf(buf,  
-				__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":215:2061:260:250"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":540:2061:260:250"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":865:2061:260:250"  
-				"\n");
-		}
-		else if (Read_PROJ_ID() == PROJ_ID_ZX550ML)
-		{
-			return sprintf(buf,  
-				__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":215:2061:260:250"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":540:2061:260:250"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":865:2061:260:250"  
-				"\n");
+			if (Read_PROJ_ID() == PROJ_ID_ZE550ML)
+			{
+				return sprintf(buf,  
+					__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":130:1330:160:100"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":360:1330:170:100"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":590:1330:160:100"  
+					"\n");
+			}
+			else if (Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
+			{
+				return sprintf(buf,  
+					__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":160:2045:240:250"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":520:2045:250:250"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":880:2045:240:250"  
+					"\n");
+			}
+			else if (Read_PROJ_ID() == PROJ_ID_ZX550ML)
+			{
+				return sprintf(buf,  
+					__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":215:2061:260:250"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":540:2061:260:250"  
+					"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":865:2061:260:250"  
+					"\n");
+			}
 		}
 	}
-	else
+	else if (Read_PROJ_ID() == PROJ_ID_ZS570ML || Read_PROJ_ID() == PROJ_ID_ZS571ML)
 	{
-		if (Read_PROJ_ID() == PROJ_ID_ZE550ML)
-		{
-			return sprintf(buf,  
-				__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":130:1330:160:100"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":360:1330:170:100"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":590:1330:160:100"  
-				"\n");
-		}
-		else if (Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
-		{
-			return sprintf(buf,  
+		return sprintf(buf,  
 				__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":160:2045:240:250"  
 				"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":520:2045:250:250"  
 				"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":880:2045:240:250"  
 				"\n");
-		}
-		else if (Read_PROJ_ID() == PROJ_ID_ZX550ML)
-		{
-			return sprintf(buf,  
-				__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":215:2061:260:250"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":540:2061:260:250"  
-				"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":865:2061:260:250"  
-				"\n");
-		}
+	}
+	else
+	{
+		//default ZE551ML virtual key position.
+		return sprintf(buf,  
+			__stringify(EV_KEY) ":" __stringify(KEY_BACK) ":160:2045:240:250"  
+			"\n" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":520:2045:250:250"  
+			"\n" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":880:2045:240:250"  
+			"\n");		
 	}
 }  
   
@@ -1119,7 +1214,9 @@ static ssize_t tp_proximity_proc_write(struct file *file, const char __user *buf
 
 	if ((int)(str[0]) == (1+48)) {		//No Touch
 		touch_proximity_at_phone = 1;
-		printk("[ftxxxx] Disable Touch\n");
+		msleep(50);
+		ftxxxx_free_fingers(check_ts);
+		printk("[ftxxxx] Disable Touch & release pointer\n");
 	} else {				//Touch
 		touch_proximity_at_phone = 0;
 		printk("[ftxxxx] Enable Touch\n");
@@ -1180,6 +1277,17 @@ static int ftxxxx_ts_probe(struct i2c_client *client, const struct i2c_device_id
 
 	printk("\n[ftxxxx] Create workqueue success\n");
 
+	
+	ftxxxx_ts->usb_wq = create_singlethread_workqueue("focal_usb_wq");
+	if (!ftxxxx_ts->usb_wq) 
+	{
+		printk(KERN_ERR "\n[ftxxxx] %s: create usb detect workqueue failed\n", __func__);
+		err = -ENOMEM;
+		goto exit_create_wq_failed;
+	}
+	INIT_WORK(&ftxxxx_ts->usb_detect_work, ftxxxx_cable_status);
+	printk("\n[ftxxxx] Create usb detect workqueue success\n");
+	
 	mutex_init(&ftxxxx_ts->mutex_lock);
 	wake_lock_init(&ftxxxx_ts->wake_lock, WAKE_LOCK_SUSPEND, "ftxxxx_wake_lock");
 
@@ -1188,8 +1296,16 @@ static int ftxxxx_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	ftxxxx_ts->irq = pdata->gpio_irq;
 	ftxxxx_ts->client = client;
 	ftxxxx_ts->suspend_flag = 0;
+	ftxxxx_ts->usb_status = 0;
 	ftxxxx_ts->pdata = pdata;
-	if (Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZR550ML || Read_PROJ_ID() == PROJ_ID_ZX550ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
+	if (Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZX550ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
+	{
+		ftxxxx_ts->x_max = 1080 - 1;
+		ftxxxx_ts->y_max = 1920 - 1;
+		if(0 >= ftxxxx_ts->x_max) ftxxxx_ts->x_max = 1080;
+		if(0 >= ftxxxx_ts->y_max) ftxxxx_ts->y_max = 1920;
+	}
+	else if (Read_PROJ_ID() == PROJ_ID_ZS570ML || Read_PROJ_ID() == PROJ_ID_ZS571ML)
 	{
 		ftxxxx_ts->x_max = 1080 - 1;
 		ftxxxx_ts->y_max = 1920 - 1;
@@ -1247,7 +1363,8 @@ static int ftxxxx_ts_probe(struct i2c_client *client, const struct i2c_device_id
 
 	ftxxxx_ts->input_dev = input_dev;
 
-	if (Read_PROJ_ID() == PROJ_ID_ZE550ML || Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZX550ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD)
+	if (Read_PROJ_ID() == PROJ_ID_ZE550ML || Read_PROJ_ID() == PROJ_ID_ZE551ML || Read_PROJ_ID() == PROJ_ID_ZX550ML || Read_PROJ_ID() == PROJ_ID_ZE551ML_CKD
+		|| Read_PROJ_ID() == PROJ_ID_ZS570ML || Read_PROJ_ID() == PROJ_ID_ZS571ML)
 	{
 		virtual_keys_init();	//<ASUS_virtual_key+>
 	}
@@ -1425,7 +1542,25 @@ static int ftxxxx_ts_probe(struct i2c_client *client, const struct i2c_device_id
 		ftxxxx_write_reg(client, 0xe4, 0x3e);
 		ftxxxx_write_reg(client, 0xe5, 0x06);
 	}
-
+	else if (Read_PROJ_ID() == PROJ_ID_ZS570ML || Read_PROJ_ID() == PROJ_ID_ZS571ML)
+	{
+		ftxxxx_write_reg(client, 0xda, 0x96);
+		ftxxxx_write_reg(client, 0xdb, 0x00);
+		ftxxxx_write_reg(client, 0xdc, 0x80);
+		ftxxxx_write_reg(client, 0xdd, 0x07);
+		ftxxxx_write_reg(client, 0xde, 0x96);
+		ftxxxx_write_reg(client, 0xdf, 0x00);
+		ftxxxx_write_reg(client, 0xe0, 0xa2);
+		ftxxxx_write_reg(client, 0xe1, 0x03);
+		ftxxxx_write_reg(client, 0xe2, 0x30);
+		ftxxxx_write_reg(client, 0xe3, 0x18);
+		ftxxxx_write_reg(client, 0xe4, 0x3e);
+		ftxxxx_write_reg(client, 0xe5, 0x06);
+	}
+	//Jeffery+++
+	//add global variable check_ts for P-sensor checking
+	check_ts = ftxxxx_ts;
+	//Jeffery---
 //<ASUS_Proximity+>
 #ifdef ASUS_TOUCH_PROXIMITY_NODE
 	tp_proximity_proc = proc_create("asus_touch_proximity_status", 0664, NULL, &tp_proximity_proc_fops);
@@ -1476,10 +1611,13 @@ exit_init_gpio:
 	{
 		destroy_workqueue(ftxxxx_ts->ftxxxx_wq);
 	}
+	if(ftxxxx_ts->usb_wq){
+		destroy_workqueue(ftxxxx_ts->usb_wq);
+	}
 	mutex_destroy(&ftxxxx_ts->mutex_lock);
 	wake_lock_destroy(&ftxxxx_ts->wake_lock);
 
-exit_create_wq_failed:
+exit_create_wq_failed:	
 	kfree(ftxxxx_ts);
 
 exit_alloc_data_failed:

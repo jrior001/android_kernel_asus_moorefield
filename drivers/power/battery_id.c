@@ -38,11 +38,12 @@ void battery_prop_changed(int battery_conn_stat,
 			struct ps_batt_chg_prof *batt_prop)
 {
 	if (batt_status != battery_conn_stat) {
-		if (battery_conn_stat == POWER_SUPPLY_BATTERY_INSERTED)
+		if (battery_conn_stat == POWER_SUPPLY_BATTERY_INSERTED ||
+				battery_conn_stat == POWER_SUPPLY_BATTERY_UPDATED){
 			batt_property = batt_prop;
-		else
+		} else {
 			batt_property = NULL;
-
+		}
 		batt_status = battery_conn_stat;
 	}
 
@@ -58,9 +59,10 @@ EXPORT_SYMBOL_GPL(battery_prop_changed);
  */
 int get_batt_prop(struct ps_batt_chg_prof *batt_prop)
 {
-	if (batt_property)
+	if (batt_property) {
 		memcpy(batt_prop, batt_property,
 			sizeof(struct ps_batt_chg_prof));
+	}
 	else
 		return -ENOMEM;
 	return 0;

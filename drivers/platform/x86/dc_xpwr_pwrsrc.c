@@ -174,6 +174,21 @@ EXPORT_SYMBOL(dc_xpwr_vbus_on_status);
 
 static int handle_pwrsrc_event(struct dc_pwrsrc_info *info)
 {
+#ifdef CONFIG_BTNS_PMIC
+	int vbus_status = 0;
+
+	vbus_status = dc_xpwr_vbus_on_status();
+
+	if (vbus_status) {
+		dev_info(&info->pdev->dev, "VBUS attach\n");
+		atomic_notifier_call_chain(&info->otg->notifier,
+				USB_EVENT_VBUS, &vbus_status);
+	} else {
+		dev_info(&info->pdev->dev, "VBUS dettach\n");
+		atomic_notifier_call_chain(&info->otg->notifier,
+			USB_EVENT_VBUS, &vbus_status);
+	}
+#else
 	if (dc_xpwr_vbus_on_status()) {
 		dev_info(&info->pdev->dev, "VBUS attach\n");
 		if (info->edev)
@@ -185,7 +200,7 @@ static int handle_pwrsrc_event(struct dc_pwrsrc_info *info)
 			extcon_set_cable_state(info->edev,
 					PWRSRC_EXTCON_CABLE_USB, false);
 	}
-
+#endif
 	return 0;
 }
 
@@ -475,6 +490,10 @@ static int dc_xpwr_pwrsrc_probe(struct platform_device *pdev)
 	dc_xpwr_pwrsrc_log_rsi(pdev, pwr_up_down_info,
 				DC_PS_BOOT_REASON_REG);
 
+#ifdef CONFIG_BTNS_PMIC
+	ret = pwrsrc_otg_registration(info);
+#else
+
 	if (info->pdata->en_chrg_det) {
 		wake_lock_init(&info->wakelock, WAKE_LOCK_SUSPEND,
 						"pwrsrc_wakelock");
@@ -482,14 +501,16 @@ static int dc_xpwr_pwrsrc_probe(struct platform_device *pdev)
 	} else {
 		ret = pwrsrc_extcon_registration(info);
 	}
+#endif
 	if (ret < 0)
 		return ret;
 
 	for (i = 0; i < DC_PWRSRC_INTR_NUM; i++) {
 		info->irq[i] = platform_get_irq(pdev, i);
 		ret = request_threaded_irq(info->irq[i],
-				NULL, dc_xpwr_pwrsrc_isr,
-				IRQF_ONESHOT, PWRSRC_DRV_NAME, info);
+					   NULL, dc_xpwr_pwrsrc_isr,
+					   IRQF_ONESHOT | IRQF_NO_SUSPEND,
+					   PWRSRC_DRV_NAME, info);
 		if (ret) {
 			dev_err(&pdev->dev, "request_irq fail :%d err:%d\n",
 							info->irq[i], ret);
@@ -504,7 +525,8 @@ static int dc_xpwr_pwrsrc_probe(struct platform_device *pdev)
 		intel_mid_pmic_writeb(DC_BC12_IRQ_CFG_REG, BC12_IRQ_CFG_MASK);
 		/* enable the charger detection logic */
 		intel_mid_pmic_setb(DC_BC_GLOBAL_REG, BC_GLOBAL_RUN);
-	}
+	} else
+		intel_mid_pmic_writeb(DC_BC12_IRQ_CFG_REG, 0x0);
 
 	if (info->pdata->en_chrg_det)
 		ret = handle_chrg_det_event(info);

@@ -451,8 +451,11 @@ int intel_enable_pipe_gamma(struct drm_crtc *crtc)
 	status |= GAMMA_ENABLE_SPR;
 	I915_WRITE(GAMMA_SP2_CNTRL(pipe), status);
 
-	if (IS_VALLEYVIEW(dev)) {
-		/* Need a trigger to update framebuffer for panel */
+	/*
+	 * Need a trigger to update framebuffer for
+	 * few hdmi self refreh panel.
+	 */
+	if (IS_VALLEYVIEW(dev) && intel_pipe_has_type(crtc, INTEL_OUTPUT_HDMI)) {
 		mutex_lock(&crtc->mutex);
 		if (I915_READ(DSPCNTR(pipe) & DISPLAY_PLANE_ENABLE))
 			I915_WRITE(DSPSURF(pipe), I915_READ(DSPSURF(pipe)));
