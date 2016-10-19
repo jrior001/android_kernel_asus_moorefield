@@ -21,7 +21,6 @@
 #include <linux/backing-dev.h>
 #include <linux/atomic.h>
 #include <linux/scatterlist.h>
-#include <linux/rbtree.h>
 #include <asm/page.h>
 #include <asm/unaligned.h>
 #include <crypto/hash.h>
@@ -62,7 +61,7 @@ struct dm_crypt_io {
 	int error;
 	sector_t sector;
 
-	struct rb_node rb_node;
+	struct list_head list;
 } CRYPTO_MINALIGN_ATTR;
 
 struct dm_crypt_request {
@@ -128,7 +127,7 @@ struct crypt_config {
 
 	struct task_struct *write_thread;
 	wait_queue_head_t write_thread_wait;
-	struct rb_root write_tree;
+	struct list_head write_thread_list;
 
 	char *cipher;
 	char *cipher_string;
@@ -1011,15 +1010,11 @@ static void kcryptd_io_write(struct dm_crypt_io *io)
 	generic_make_request(clone);
 }
 
-#define crypt_io_from_node(node) rb_entry((node), struct dm_crypt_io, rb_node)
-
 static int dmcrypt_write(void *data)
 {
 	struct crypt_config *cc = data;
-	struct dm_crypt_io *io;
-
 	while (1) {
-		struct rb_root write_tree;
+		struct list_head local_list;
 		struct blk_plug plug;
 
 		DECLARE_WAITQUEUE(wait, current);
@@ -1027,7 +1022,7 @@ static int dmcrypt_write(void *data)
 		spin_lock_irq(&cc->write_thread_wait.lock);
 continue_locked:
 
-		if (!RB_EMPTY_ROOT(&cc->write_tree))
+		if (!list_empty(&cc->write_thread_list))
 			goto pop_from_list;
 
 		__set_current_state(TASK_INTERRUPTIBLE);
@@ -1049,22 +1044,20 @@ continue_locked:
 		goto continue_locked;
 
 pop_from_list:
-		write_tree = cc->write_tree;
-		cc->write_tree = RB_ROOT;
+		local_list = cc->write_thread_list;
+		local_list.next->prev = &local_list;
+		local_list.prev->next = &local_list;
+		INIT_LIST_HEAD(&cc->write_thread_list);
+
 		spin_unlock_irq(&cc->write_thread_wait.lock);
 
-		BUG_ON(rb_parent(write_tree.rb_node));
-
-		/*
-		 * Note: we cannot walk the tree here with rb_next because
-		 * the structures may be freed when kcryptd_io_write is called.
-		 */
 		blk_start_plug(&plug);
 		do {
-			io = crypt_io_from_node(rb_first(&write_tree));
-			rb_erase(&io->rb_node, &write_tree);
+			struct dm_crypt_io *io = container_of(local_list.next,
+						struct dm_crypt_io, list);
+			list_del(&io->list);
 			kcryptd_io_write(io);
-		} while (!RB_EMPTY_ROOT(&write_tree));
+		} while (!list_empty(&local_list));
 		blk_finish_plug(&plug);
 	}
 	return 0;
@@ -1075,8 +1068,6 @@ static void kcryptd_crypt_write_io_submit(struct dm_crypt_io *io, int async)
 	struct bio *clone = io->ctx.bio_out;
 	struct crypt_config *cc = io->cc;
 	unsigned long flags;
-	sector_t sector;
-	struct rb_node **rbp, *parent;
 
 	if (unlikely(io->error < 0)) {
 		crypt_free_buffer_pages(cc, clone);
@@ -1091,19 +1082,7 @@ static void kcryptd_crypt_write_io_submit(struct dm_crypt_io *io, int async)
 	clone->bi_sector = cc->start + io->sector;
 
 	spin_lock_irqsave(&cc->write_thread_wait.lock, flags);
-	rbp = &cc->write_tree.rb_node;
-	parent = NULL;
-	sector = io->sector;
-	while (*rbp) {
-		parent = *rbp;
-		if (sector < crypt_io_from_node(parent)->sector)
-			rbp = &(*rbp)->rb_left;
-		else
-			rbp = &(*rbp)->rb_right;
-	}
-	rb_link_node(&io->rb_node, parent, rbp);
-	rb_insert_color(&io->rb_node, &cc->write_tree);
-
+	list_add_tail(&io->list, &cc->write_thread_list);
 	wake_up_locked(&cc->write_thread_wait);
 	spin_unlock_irqrestore(&cc->write_thread_wait.lock, flags);
 }
@@ -1672,7 +1651,7 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	}
 
 	init_waitqueue_head(&cc->write_thread_wait);
-	cc->write_tree = RB_ROOT;
+	INIT_LIST_HEAD(&cc->write_thread_list);
 
 	cc->write_thread = kthread_create(dmcrypt_write, cc, "dmcrypt_write");
 	if (IS_ERR(cc->write_thread)) {
