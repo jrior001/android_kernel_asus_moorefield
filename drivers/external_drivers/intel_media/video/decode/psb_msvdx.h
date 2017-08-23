@@ -179,6 +179,16 @@ struct psb_msvdx_ec_ctx {
 	drm_psb_msvdx_decode_status_t decode_status;
 };
 
+#ifdef CONFIG_ION
+struct psb_ion_buffer {
+	struct list_head head;
+	struct dma_buf *psDmaBuf;
+	struct dma_buf_attachment *psAttachment;
+	struct sg_table *sg;
+	int fd;
+};
+#endif
+
 /* MSVDX private structure */
 struct msvdx_private {
 	struct drm_device *dev;
