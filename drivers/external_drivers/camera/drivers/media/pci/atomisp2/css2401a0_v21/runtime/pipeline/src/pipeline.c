@@ -1,22 +1,15 @@
 /*
  * Support for Intel Camera Imaging ISP subsystem.
+ * Copyright (c) 2015, Intel Corporation.
  *
- * Copyright (c) 2010 - 2014 Intel Corporation. All Rights Reserved.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  */
 
 #include "ia_css_debug.h"
@@ -470,14 +463,17 @@ bool ia_css_pipeline_is_mapped(unsigned int key)
 {
 	bool ret = false;
 
-	assert(key < IA_CSS_PIPELINE_NUM_MAX);
-	assert(key < IA_CSS_PIPE_ID_NUM);
+	IA_CSS_ENTER_PRIVATE("key = %d", key);
 
-	IA_CSS_ENTER("key=%d", key);
+	if ((key >= IA_CSS_PIPELINE_NUM_MAX) || (key >= IA_CSS_PIPE_ID_NUM)) {
+		IA_CSS_ERROR("Invalid key!!");
+		IA_CSS_LEAVE_PRIVATE("return = %d", false);
+		return false;
+	}
 
 	ret = (bool)(pipeline_num_to_sp_thread_map[key] != (unsigned)PIPELINE_NUM_UNMAPPED);
 
-	IA_CSS_LEAVE("return=%d", ret);
+	IA_CSS_LEAVE_PRIVATE("return = %d", ret);
 	return ret;
 }
 

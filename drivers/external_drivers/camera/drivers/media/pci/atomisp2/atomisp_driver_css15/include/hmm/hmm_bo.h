@@ -78,7 +78,7 @@ enum hmm_bo_type {
 	HMM_BO_PRIVATE,
 	HMM_BO_SHARE,
 	HMM_BO_USER,
-#ifdef CONFIG_ION_FOR_CAMERA
+#ifdef CONFIG_ION
 	HMM_BO_ION,
 #endif
 };
@@ -116,7 +116,7 @@ struct hmm_buffer_object {
 	int			from_highmem;
 	int			mmap_count;
 	struct hmm_vm_node	*vm_node;
-#ifdef CONFIG_ION_FOR_CAMERA
+#ifdef CONFIG_ION
 	struct ion_handle	*ihandle;
 #endif
 	int			status;
