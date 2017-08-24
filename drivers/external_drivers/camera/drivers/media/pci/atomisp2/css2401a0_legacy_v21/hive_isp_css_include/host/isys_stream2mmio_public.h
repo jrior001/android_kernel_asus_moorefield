@@ -1,22 +1,15 @@
 /*
  * Support for Intel Camera Imaging ISP subsystem.
+ * Copyright (c) 2015, Intel Corporation.
  *
- * Copyright (c) 2010 - 2014 Intel Corporation. All Rights Reserved.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  */
 
 #ifndef __ISYS_STREAM2MMIO_PUBLIC_H_INCLUDED__
@@ -48,7 +41,7 @@ STORAGE_CLASS_STREAM2MMIO_H void stream2mmio_get_state(
  */
 STORAGE_CLASS_STREAM2MMIO_H void stream2mmio_get_sid_state(
 		const stream2mmio_ID_t ID,
-		const uint32_t sid_id,
+		const stream2mmio_sid_ID_t sid_id,
 		stream2mmio_sid_state_t *state);
 /** end of NCI */
 
@@ -68,9 +61,9 @@ STORAGE_CLASS_STREAM2MMIO_H void stream2mmio_get_sid_state(
  * @return the value of the register.
  */
 STORAGE_CLASS_STREAM2MMIO_H hrt_data stream2mmio_reg_load(
-	const stream2mmio_ID_t ID,
-	const uint32_t sid_id,
-	const uint32_t reg_idx);
+		const stream2mmio_ID_t ID,
+		const stream2mmio_sid_ID_t sid_id,
+		const uint32_t reg_idx);
 
 /**
  * @brief Dump the SID processor state.
@@ -100,9 +93,9 @@ STORAGE_CLASS_STREAM2MMIO_H void stream2mmio_dump_state(
  *
  */
 STORAGE_CLASS_STREAM2MMIO_H void stream2mmio_reg_store(
-	const stream2mmio_ID_t ID,
-	const hrt_address reg,
-	const hrt_data value);
+		const stream2mmio_ID_t ID,
+		const hrt_address reg,
+		const hrt_data value);
 /** end of DLI */
 
 #endif /* __ISYS_STREAM2MMIO_PUBLIC_H_INCLUDED__ */

@@ -1,22 +1,15 @@
 /*
  * Support for Intel Camera Imaging ISP subsystem.
+ * Copyright (c) 2015, Intel Corporation.
  *
- * Copyright (c) 2010 - 2014 Intel Corporation. All Rights Reserved.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  */
 
 #ifndef __ISP_OP_COUNT_H_INCLUDED__
@@ -25,9 +18,9 @@
 #include <stdio.h>
 
 typedef struct {
-	int bbb_cnt;   /* number of bbb      */
+	long long bbb_cnt;   /* number of bbb      */
 	int bbb_op;    /* operations per bbb */
-	int total_cnt; /* bbb_cnt * bbb_op   */
+	long long total_cnt; /* bbb_cnt * bbb_op   */
 } bbb_stat_t;
 
 typedef enum {
@@ -40,6 +33,8 @@ typedef enum {
 	bbb_func_OP_1w_addsat,
 	bbb_func_OP_1w_subsat,
 	bbb_func_OP_1w_subasr1,
+	bbb_func_OP_1w_subhalf,
+	bbb_func_OP_1w_subhalfrnd,
 	bbb_func_OP_1w_abs,
 	bbb_func_OP_1w_subabssat,
 	bbb_func_OP_1w_muld,
@@ -70,6 +65,7 @@ typedef enum {
 	bbb_func_OP_1w_mod,
 	bbb_func_OP_1w_sqrt_u,
 	bbb_func_OP_1w_mux,
+	bbb_func_OP_1w_avg,
 	bbb_func_OP_1w_avgrnd,
 	bbb_func_OP_1w_min,
 	bbb_func_OP_1w_max,
@@ -82,6 +78,8 @@ typedef enum {
 	bbb_func_OP_2w_addsat,
 	bbb_func_OP_2w_subsat,
 	bbb_func_OP_2w_subasr1,
+	bbb_func_OP_2w_subhalf,
+	bbb_func_OP_2w_subhalfrnd,
 	bbb_func_OP_2w_abs,
 	bbb_func_OP_2w_subabssat,
 	bbb_func_OP_2w_mul,
@@ -106,6 +104,7 @@ typedef enum {
 	bbb_func_OP_2w_mod,
 	bbb_func_OP_2w_sqrt_u,
 	bbb_func_OP_2w_mux,
+	bbb_func_OP_2w_avg,
 	bbb_func_OP_2w_avgrnd,
 	bbb_func_OP_2w_min,
 	bbb_func_OP_2w_max,

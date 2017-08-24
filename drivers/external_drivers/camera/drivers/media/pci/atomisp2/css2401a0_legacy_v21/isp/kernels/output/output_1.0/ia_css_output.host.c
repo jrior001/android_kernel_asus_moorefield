@@ -1,22 +1,15 @@
 /*
  * Support for Intel Camera Imaging ISP subsystem.
+ * Copyright (c) 2015, Intel Corporation.
  *
- * Copyright (c) 2010 - 2014 Intel Corporation. All Rights Reserved.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  */
 
 #include "ia_css_frame.h"
@@ -31,6 +24,18 @@
 const struct ia_css_output_config default_output_config = {
 	0,
 	0
+};
+
+static const struct ia_css_output_configuration default_output_configuration = {
+	.info = (struct ia_css_frame_info *)NULL,
+};
+
+static const struct ia_css_output0_configuration default_output0_configuration = {
+	.info = (struct ia_css_frame_info *)NULL,
+};
+
+static const struct ia_css_output1_configuration default_output1_configuration = {
+	.info = (struct ia_css_frame_info *)NULL,
 };
 
 void
@@ -88,10 +93,14 @@ ia_css_output_configure(
 	const struct ia_css_binary     *binary,
 	const struct ia_css_frame_info *info)
 {
-	const struct ia_css_output_configuration config =
-		{ info };
-	if (info)
+	if (NULL != info) {
+		struct ia_css_output_configuration config =
+				default_output_configuration;
+
+		config.info = info;
+
 		ia_css_configure_output(binary, &config);
+	}
 }
 
 void
@@ -99,10 +108,14 @@ ia_css_output0_configure(
 	const struct ia_css_binary     *binary,
 	const struct ia_css_frame_info *info)
 {
-	const struct ia_css_output0_configuration config =
-		{ info };
-	if (info)
+	if (NULL != info) {
+		struct ia_css_output0_configuration config =
+				default_output0_configuration;
+
+		config.info = info;
+
 		ia_css_configure_output0(binary, &config);
+	}
 }
 
 void
@@ -110,10 +123,15 @@ ia_css_output1_configure(
 	const struct ia_css_binary     *binary,
 	const struct ia_css_frame_info *info)
 {
-	const struct ia_css_output1_configuration config =
-		{ info };
-	if (info)
+
+	if (NULL != info) {
+		struct ia_css_output1_configuration config =
+				default_output1_configuration;
+
+		config.info = info;
+
 		ia_css_configure_output1(binary, &config);
+	}
 }
 
 void

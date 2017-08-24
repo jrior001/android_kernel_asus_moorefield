@@ -1,22 +1,15 @@
 /*
  * Support for Intel Camera Imaging ISP subsystem.
+ * Copyright (c) 2015, Intel Corporation.
  *
- * Copyright (c) 2010 - 2014 Intel Corporation. All Rights Reserved.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  */
 
 #ifndef _IA_CSS_DEBUG_H_
@@ -75,11 +68,11 @@ enum ia_css_debug_enable_param_dump {
 
 #define IA_CSS_ERROR(fmt, ...) \
 	ia_css_debug_dtrace(IA_CSS_DEBUG_ERROR, \
-		"%s(): error: " fmt "\n", __func__, ##__VA_ARGS__)
+		"%s() %d: error: " fmt "\n", __func__, __LINE__, ##__VA_ARGS__)
 
 #define IA_CSS_WARNING(fmt, ...) \
 	ia_css_debug_dtrace(IA_CSS_DEBUG_WARNING, \
-		"%s(): warning: " fmt "\n", __func__, ##__VA_ARGS__)
+		"%s() %d: warning: " fmt "\n", __func__, __LINE__, ##__VA_ARGS__)
 
 /* Logging macros for public functions (API functions) */
 #define IA_CSS_ENTER(fmt, ...) \
@@ -98,7 +91,7 @@ enum ia_css_debug_enable_param_dump {
 /* Shorthand for returning an enum ia_css_err return value */
 #define IA_CSS_LEAVE_ERR(__err) \
 	ia_css_debug_dtrace(IA_CSS_DEBUG_TRACE, \
-		"%s(): leave: return_err=%d\n", __func__, __err)
+		"%s() %d: leave: return_err=%d\n", __func__, __LINE__, __err)
 
 /* Use this macro for logging other than enter/leave.
  * Note that this macro always uses the PRIVATE logging level.
@@ -119,7 +112,7 @@ enum ia_css_debug_enable_param_dump {
 /* Shorthand for returning an enum ia_css_err return value */
 #define IA_CSS_LEAVE_ERR_PRIVATE(__err) \
 	ia_css_debug_dtrace(IA_CSS_DEBUG_TRACE_PRIVATE, \
-		"%s(): leave: return_err=%d\n", __func__, __err)
+		"%s() %d: leave: return_err=%d\n", __func__, __LINE__, __err)
 
 /* Use this macro for small functions that do not call other functions. */
 #define IA_CSS_ENTER_LEAVE_PRIVATE(fmt, ...) \
@@ -407,6 +400,12 @@ void ia_css_debug_dump_metadata_config(
 void ia_css_debug_dump_stream_config(
 	const struct ia_css_stream_config *config,
 	int num_pipes);
+
+/*! @brief Dump the state of the SP tagger
+ * Dumps the internal state of the SP tagger
+ * @return	None
+ */
+void ia_css_debug_tagger_state(void);
 
 /**
  * @brief Initialize the debug mode.

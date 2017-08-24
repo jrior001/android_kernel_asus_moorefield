@@ -60,10 +60,7 @@ struct hmm_bo_device {
 	struct list_head	active_bo_list;
 
 	/* list lock is used to protect both of the buffer object lists */
-	struct spinlock		list_lock;
-#ifdef CONFIG_ION_FOR_CAMERA
-	struct ion_client	*iclient;
-#endif
+	spinlock_t		list_lock;
 	int			flag;
 };
 
@@ -75,11 +72,6 @@ int hmm_bo_device_init(struct hmm_bo_device *bdev,
  * clean up all hmm_bo_device related things.
  */
 void hmm_bo_device_exit(struct hmm_bo_device *bdev);
-
-/*
- * only clean up empty MMU L2 tables.
- */
-void hmm_bo_device_cleanup_mmu_l2(struct hmm_bo_device *bdev);
 
 /*
  * whether the bo device is inited or not.

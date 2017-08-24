@@ -4,5 +4,6 @@
 which buildslave > /dev/null
 if [ $? -ne 0 ]
 then
-    exec ../../kernel/scripts/checkpatch.pl --no-tree "$@"
+    #exec ../../kernel/scripts/checkpatch.pl --no-tree "$@"
+    exec scripts/checkpatch.pl --no-tree "$@"
 fi

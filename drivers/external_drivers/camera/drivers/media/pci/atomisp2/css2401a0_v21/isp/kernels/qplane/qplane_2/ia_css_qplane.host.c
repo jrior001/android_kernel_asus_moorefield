@@ -1,22 +1,15 @@
 /*
  * Support for Intel Camera Imaging ISP subsystem.
+ * Copyright (c) 2015, Intel Corporation.
  *
- * Copyright (c) 2010 - 2014 Intel Corporation. All Rights Reserved.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  */
 
 #include "ia_css_frame.h"
@@ -29,6 +22,10 @@
 #include "isp.h"
 
 #include "ia_css_qplane.host.h"
+
+static const struct ia_css_qplane_configuration default_config = {
+	.pipe = (struct sh_css_sp_pipeline *)NULL,
+};
 
 void
 ia_css_qplane_config(
@@ -45,7 +42,7 @@ ia_css_qplane_config(
 	/* Assume divisiblity here, may need to generalize to fixed point. */
 	assert (elems_a % to->port_b.elems == 0);
 
-	to->inout_port_config       = from->pipe->inout_port_config;
+	to->inout_port_config = from->pipe->inout_port_config;
 	to->format = from->info->format;
 }
 
@@ -55,7 +52,10 @@ ia_css_qplane_configure(
 	const struct ia_css_binary      *binary,
 	const struct ia_css_frame_info  *info)
 {
-	const struct ia_css_qplane_configuration config =
-		{ pipe, info };
+	struct ia_css_qplane_configuration config = default_config;
+
+	config.pipe = pipe;
+	config.info = info;
+
 	ia_css_configure_qplane(binary, &config);
 }
